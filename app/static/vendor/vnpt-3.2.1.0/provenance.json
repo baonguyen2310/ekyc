@@ -1,0 +1,7 @@
+{
+  "source": "https://ekyc.vnpt.vn/admin-dashboard/vi/documents/download",
+  "retrieved_at": "2026-11-02",
+  "archive": "web-sdk-version-3.2.1.0.zip",
+  "archive_sha256": "035b749cdd8e76bac19cb685986345ea2d8cd2845420507fdc3ef3bc9d000677",
+  "note": "Official bundle retained unchanged; demo index with sample credentials excluded."
+}

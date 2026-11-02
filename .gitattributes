@@ -1,0 +1,2 @@
+# Preserve the official SDK byte-for-byte, including its original line endings.
+app/static/vendor/** -text

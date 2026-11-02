@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+*.png
+*.jpg
+*.jpeg
+*.webp
+evidence/
+._*
+.DS_Store

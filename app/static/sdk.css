@@ -1,0 +1,14 @@
+html, body { margin: 0; background: #fff; color: #17243b; font-family: Arial, sans-serif; }
+body { min-height: 640px; }
+.sdk-toolbar { display:flex;align-items:center;gap:18px;padding:15px max(20px,calc((100vw - 1300px)/2));border-bottom:1px solid #e4e9f1;background:#fff; }
+.sdk-brand { color:#155bd7;font-weight:750;font-size:20px;text-decoration:none;white-space:nowrap; }
+.sdk-toolbar>span { color:#758196;font-size:13px; }
+.sdk-toolbar button { margin-left:auto;border:1px solid #dce3ee;border-radius:9px;background:#f6f9ff;color:#155bd7;padding:11px 15px;font:600 13px Arial,sans-serif;cursor:pointer; }
+.sdk-toolbar button:disabled { opacity:.55;cursor:default; }
+.sdk-toolbar a:focus-visible,.sdk-toolbar button:focus-visible { outline:3px solid #adc7fa;outline-offset:3px; }
+#sdk-loading { padding: 24px; text-align: center; }
+#sdk-error { max-width:1000px;margin:18px auto;padding:14px 18px;border-radius:10px;border:1px solid #ffd0d0;background:#fff4f4;color:#a52a2a;line-height:1.6;font-size:14px; }
+.vnpt-ekyc-sdk-container { min-height: 640px; }
+.finishing #ekyc_sdk_intergrated { pointer-events:none;opacity:.55; }
+[hidden] { display:none!important; }
+@media(max-width:570px){.sdk-toolbar{padding:12px 14px;gap:10px;flex-wrap:wrap}.sdk-toolbar>span{font-size:11px}.sdk-toolbar button{font-size:11px;padding:10px}.sdk-brand{font-size:17px}#sdk-error{margin:12px;font-size:12px}}

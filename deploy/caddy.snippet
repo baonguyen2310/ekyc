@@ -1,0 +1,9 @@
+# Add to /etc/caddy/Caddyfile, validate, then reload (keep existing hosts unchanged).
+tools.opskoo.com {
+    encode gzip
+    reverse_proxy 127.0.0.1:8102
+}
+
+http://tools.opskoo.com {
+    redir https://tools.opskoo.com{uri} 308
+}
