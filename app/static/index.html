@@ -41,28 +41,28 @@
     </section>
 
     <div id="workspace" hidden>
-      <section class="page-heading"><div><p class="eyebrow">VNPT eKYC · Web SDK & API</p><h1>Một lần thử. Từng kết quả rõ ràng.</h1><p class="muted">Kiểm tra bằng camera với liveness oval hoặc dùng các ảnh đã chuẩn bị.</p></div><span class="private-label"><svg><use href="#i-shield"/></svg>Phiên thử riêng</span></section>
+      <section class="page-heading"><div><p class="eyebrow">VNPT eKYC · Web SDK & API</p><h1>Đọc giấy tờ và kiểm tra người thật.</h1><p class="muted">Chạy OCR hoặc Liveness Oval riêng biệt, theo dõi kết quả và lỗi của từng phần.</p></div><span class="private-label"><svg><use href="#i-shield"/></svg>Phiên thử riêng</span></section>
       <div class="flow-switch" role="group" aria-label="Cách xác minh">
-        <button class="flow-button selected" id="flow-sdk" aria-pressed="true"><svg><use href="#i-face"/></svg>Camera · Web SDK Oval</button>
-        <button class="flow-button" id="flow-images" aria-pressed="false"><svg><use href="#i-upload"/></svg>Kiểm tra bằng ảnh</button>
+        <button class="flow-button selected" id="flow-images" aria-pressed="true"><svg><use href="#i-id"/></svg>Đọc giấy tờ (OCR)</button>
+        <button class="flow-button" id="flow-sdk" aria-pressed="false"><svg><use href="#i-face"/></svg>Liveness Oval</button>
       </div>
       <div class="workspace-grid">
         <div class="main-column">
           <section class="panel setup-notice" id="service-notice" hidden><div><strong>Kết nối VNPT chưa sẵn sàng</strong><p id="service-message"></p></div></section>
-          <section class="panel sdk-panel" id="sdk-panel">
-            <div class="section-heading"><div><span class="step">01</span><h2>Xác minh bằng camera</h2></div><span class="sdk-version">VNPT Web SDK 3.2.1.0</span></div>
-            <p class="muted">Chụp hai mặt CCCD/CMND, sau đó đặt khuôn mặt trong khung oval và di chuyển gần–xa theo hướng dẫn. SDK tự ghi nhận dữ liệu quét để kiểm tra liveness và so khớp với giấy tờ.</p>
-            <div class="sdk-steps"><span>1 · Hai mặt giấy tờ</span><span>2 · Quét oval gần–xa</span><span>3 · Kết quả từ VNPT</span></div>
-            <label class="checkbox-row consent"><input type="checkbox" id="sdk-consent"><span>Tôi đồng ý gửi ảnh giấy tờ, ảnh khuôn mặt và dữ liệu quét từ camera đến <strong>VNPT eKYC</strong> để thử nghiệm. Dữ liệu có thể được VNPT lưu theo chính sách dịch vụ.</span></label>
-            <div class="sdk-actions"><button class="button primary" id="start-sdk"><svg><use href="#i-camera"/></svg>Bắt đầu với camera</button><button class="button secondary" id="stop-sdk" hidden>Kết thúc lượt kiểm tra</button><span class="file-hint">Tối đa 14 request/lượt · kết quả giữ tạm 20 phút</span></div>
+          <section class="panel sdk-panel" id="sdk-panel" hidden>
+            <div class="section-heading"><div><span class="step">01</span><h2>Liveness Oval · Kiểm tra người thật</h2></div><span class="sdk-version">VNPT Web SDK 3.2.1.0</span></div>
+            <p class="muted">Chỉ cần camera: đặt khuôn mặt trong khung oval và di chuyển gần–xa theo hướng dẫn. Phần này chạy độc lập, không cần tải CCCD hoặc làm OCR trước.</p>
+            <div class="sdk-steps"><span>Quét oval gần–xa</span><span>Kiểm tra người thật</span><span>Kiểm tra che mặt</span></div>
+            <label class="checkbox-row consent"><input type="checkbox" id="sdk-consent"><span>Tôi đồng ý gửi ảnh khuôn mặt và dữ liệu quét từ camera đến <strong>VNPT eKYC</strong> để thử nghiệm. Dữ liệu có thể được VNPT lưu theo chính sách dịch vụ.</span></label>
+            <div class="sdk-actions"><button class="button primary" id="start-sdk"><svg><use href="#i-camera"/></svg>Bắt đầu quét Oval</button><button class="button secondary" id="stop-sdk" hidden>Kết thúc lượt kiểm tra</button><span class="file-hint">Thông thường 5 request/lượt · giới hạn tối đa 14</span></div>
             <p id="sdk-error" class="error-text" role="alert"></p>
             <p id="sdk-status" class="muted" role="status"></p>
           </section>
-          <section class="panel input-panel" id="image-input-panel" hidden>
-            <div class="section-heading"><div><span class="step">01</span><h2>Chọn cách kiểm tra</h2></div></div>
+          <section class="panel input-panel" id="image-input-panel">
+            <div class="section-heading"><div><span class="step">01</span><h2>Đọc giấy tờ (OCR)</h2></div></div>
             <fieldset class="mode-options"><legend class="sr-only">Chế độ kiểm tra</legend>
-              <label class="mode-card"><input type="radio" name="mode" value="full" checked><span><strong>Giấy tờ & chân dung</strong><small>OCR, liveness và so khớp khuôn mặt</small></span></label>
-              <label class="mode-card"><input type="radio" name="mode" value="ocr"><span><strong>Chỉ đọc giấy tờ</strong><small>Trích xuất thông tin hai mặt</small></span></label>
+              <label class="mode-card"><input type="radio" name="mode" value="ocr" checked><span><strong>Chỉ OCR</strong><small>Đọc thông tin hai mặt giấy tờ · 4 request</small></span></label>
+              <label class="mode-card"><input type="radio" name="mode" value="full"><span><strong>Kiểm tra ảnh nâng cao</strong><small>Thêm giấy tờ thật, liveness ảnh và so khớp chân dung</small></span></label>
             </fieldset>
             <div class="divider"></div>
             <div class="section-heading"><div><span class="step">02</span><h2>Thêm ảnh cần kiểm tra</h2></div><span class="file-hint">JPG, PNG, WebP · tối đa 5 MB/ảnh</span></div>
@@ -89,19 +89,20 @@
           </section>
 
           <section class="panel result-panel" id="result-panel" hidden aria-live="polite">
-            <div class="section-heading"><div><span class="step">03</span><h2>Kết quả kiểm tra</h2></div><span id="result-badge" class="badge"></span></div>
+            <div class="section-heading"><div><span class="step">03</span><h2>Kết quả OCR</h2></div><span id="result-badge" class="badge"></span></div>
             <div class="progress-row" id="progress-row"><span class="spinner"></span><div><strong id="progress-text">Đang xử lý</strong><p id="calls">0 request đã gửi</p></div></div>
             <p id="result-error" class="error-notice" hidden></p>
             <div id="check-results" class="check-results"></div>
             <div id="extracted" hidden><h3>Thông tin đọc từ giấy tờ</h3><dl id="extracted-fields" class="extracted-fields"></dl></div>
             <p class="result-note">Kết quả kỹ thuật từ VNPT dành cho thử nghiệm. OCR thành công chưa xác nhận danh tính; điểm so khớp không phải xác suất người đó đúng danh tính. Phiên này không xác thực chip hoặc đối chiếu C06/VNeID.</p>
+            <section id="request-log" class="request-log" hidden><h3>Nhật ký request</h3><div class="request-table-wrap"><table><thead><tr><th>Bước</th><th>VNPT HTTP</th><th>Lab HTTP</th><th>Kết quả</th><th>Thời gian</th></tr></thead><tbody id="request-rows"></tbody></table></div></section>
             <details id="raw-details"><summary>Xem dữ liệu VNPT trả về</summary><pre id="raw-result"></pre></details>
             <div class="result-footer"><span>Kết quả giữ tạm tối đa 20 phút tại service.</span><button class="button secondary small" id="download-result">Tải kết quả JSON</button></div>
           </section>
         </div>
 
         <aside class="aside-column">
-          <section class="panel guide-card"><span class="guide-icon"><svg><use href="#i-shield"/></svg></span><h2>Biết rõ từng bước<br>đang kiểm tra gì.</h2><ol><li><span>1</span><div><strong>Đọc thông tin</strong><p>Trích xuất nội dung từ hai mặt CCCD hoặc CMND.</p></div></li><li><span>2</span><div><strong>Kiểm tra người thật</strong><p>Quét oval gần–xa khi dùng Web SDK; kiểm tra liveness qua ảnh khi dùng chế độ ảnh.</p></div></li><li><span>3</span><div><strong>So khớp chân dung</strong><p>So sánh khuôn mặt với ảnh trên giấy tờ.</p></div></li></ol></section>
+          <section class="panel guide-card"><span class="guide-icon"><svg><use href="#i-shield"/></svg></span><h2>Chọn phần<br>cần kiểm tra.</h2><ol><li><span>1</span><div><strong>OCR giấy tờ</strong><p>Đọc chữ từ hai mặt CCCD hoặc CMND. Kết quả OCR nằm riêng với Oval.</p></div></li><li><span>2</span><div><strong>Liveness Oval</strong><p>Quét người thật qua camera. Có thể chạy ngay khi chưa làm OCR.</p></div></li><li><span>3</span><div><strong>Kiểm tra ảnh nâng cao</strong><p>Luồng API ảnh cũ vẫn có trong phần OCR để kiểm tra giấy tờ thật và đối chiếu chân dung.</p></div></li></ol></section>
           <section class="panel small-note"><h3>Một service thử riêng</h3><p>Không gắn với tài khoản, hồ sơ hoặc dữ liệu Opskoo. Dữ liệu được xử lý tạm, không lưu thành hồ sơ tại VPS.</p><p>Camera dùng Web SDK chính thức với oval gần–xa. Chế độ ảnh vẫn dùng API liveness trên ảnh. Cả hai chưa xác thực chip hoặc đối chiếu C06/VNeID.</p><a href="https://ekyc.vnpt.vn/admin-dashboard/console/dashboard" target="_blank" rel="noopener noreferrer">Mở console VNPT<svg><use href="#i-arrow"/></svg></a></section>
         </aside>
       </div>

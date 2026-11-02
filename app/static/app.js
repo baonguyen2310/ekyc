@@ -3,7 +3,13 @@ const $ = (selector) => document.querySelector(selector);
 const state = {csrf: "", providerReady: false, providerMessage: "", busy: false, images: {}, urls: {}, stream: null, slot: null, result: null, timer: null};
 const mode = () => document.querySelector('input[name="mode"]:checked').value;
 const labels = {front: "mặt trước", back: "mặt sau", selfie: "chân dung"};
-Object.assign(state, {flow: "sdk", sdkRun: null, sdkStarting: false});
+Object.assign(state, {flow: "images", sdkRun: null, sdkStarting: false, results: {images: null, sdk: null}});
+const ovalPanel = $("#result-panel").cloneNode(true);
+ovalPanel.id = "oval-result-panel";
+ovalPanel.querySelectorAll("[id]").forEach(node => { node.id = "oval-" + node.id; });
+ovalPanel.querySelector("h2").textContent = "Kết quả Liveness Oval";
+ovalPanel.querySelector(".result-note").textContent = "Oval kiểm tra người thật và che mặt. Kết quả này độc lập với OCR, chưa xác nhận người đó là chủ giấy tờ.";
+$("#sdk-panel").insertAdjacentElement("afterend", ovalPanel);
 
 async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
@@ -23,9 +29,12 @@ function showAccess() {
   state.sdkRun = null; state.sdkStarting = false;
   $("#access-panel").hidden = false; $("#workspace").hidden = true; $("#header-actions").hidden = true;
   state.csrf = ""; state.providerReady = false; state.result = null; clearTimeout(state.poll); setBusy(false);
+  state.results = {images: null, sdk: null};
   for (const slot of Object.keys(state.images)) clearImage(slot);
   $("#raw-result").textContent = ""; $("#extracted-fields").replaceChildren(); $("#check-results").replaceChildren(); $("#result-panel").hidden = true; $("#consent").checked = false;
   $("#camera-dialog").close(); stopCamera();
+  ovalPanel.hidden = true; $("#sdk-consent").checked = false;
+  ovalPanel.querySelectorAll("pre, dl, .check-results, tbody").forEach(node => node.replaceChildren());
 }
 function syncConnection() {
   $("#service-notice").hidden = state.providerReady;
@@ -39,9 +48,8 @@ async function openWorkspace() {
   state.csrf = data.csrf; state.providerReady = data.provider_ready; state.providerMessage = data.provider_message;
   $("#access-panel").hidden = true; $("#workspace").hidden = false; $("#header-actions").hidden = false;
   syncConnection();
-  if (data.latest_job) { selectFlow("images"); await pollJob(data.latest_job); }
+  if (data.latest_job) await pollJob(data.latest_job);
   if (data.latest_sdk) {
-    selectFlow("sdk");
     const previous = await api(`/api/sdk/runs/${data.latest_sdk}`);
     renderResult(previous);
     if (previous.status === "running") {
@@ -50,6 +58,7 @@ async function openWorkspace() {
     }
     syncSdkControls();
   }
+  selectFlow(new URLSearchParams(location.search).get("tab") === "oval" ? "sdk" : "images");
 }
 window.addEventListener("pageshow", event => {
   if (event.persisted) openWorkspace().catch(showAccess);
@@ -65,7 +74,7 @@ async function bootstrap() {
   const fragment = new URLSearchParams(location.hash.slice(1));
   const access = fragment.get("access");
   if (access) {
-    history.replaceState(null, "", location.pathname);
+    history.replaceState(null, "", location.pathname + location.search);
     try { await api("/api/login", jsonOptions("POST", {access_code: access})); }
     catch (error) { $("#access-error").textContent = error.message; return; }
   }
@@ -81,6 +90,7 @@ function syncMode() {
   $("#selfie-card").hidden = !full; $("#card-check-row").hidden = !full;
   const count = full ? ($("#card-check").checked ? 10 : 8) : 4;
   $("#request-estimate").textContent = `Tối đa ${count} request API`;
+  $("#verify span").textContent = state.busy ? "Đang kiểm tra…" : full ? "Kiểm tra ảnh" : "Đọc giấy tờ";
 }
 document.querySelectorAll('input[name="mode"]').forEach(input => input.addEventListener("change", syncMode));
 $("#card-check").addEventListener("change", syncMode);
@@ -140,7 +150,7 @@ function setBusy(value) {
   state.busy = value;
   document.querySelectorAll('.input-panel button, .input-panel input').forEach(e => e.disabled = value);
   $("#verify").disabled = value || !state.providerReady;
-  $("#verify span").textContent = value ? "Đang kiểm tra…" : "Bắt đầu kiểm tra";
+  $("#verify span").textContent = value ? "Đang kiểm tra…" : mode() === "ocr" ? "Đọc giấy tờ" : "Kiểm tra ảnh";
   syncSdkControls();
 }
 
@@ -148,6 +158,8 @@ function selectFlow(flow) {
   state.flow = flow;
   $("#sdk-panel").hidden = flow !== "sdk";
   $("#image-input-panel").hidden = flow !== "images";
+  $("#result-panel").hidden = flow !== "images" || !state.results.images;
+  ovalPanel.hidden = flow !== "sdk" || !state.results.sdk;
   for (const kind of ["sdk", "images"]) {
     const button = $(`#flow-${kind}`);
     button.classList.toggle("selected", flow === kind);
@@ -155,13 +167,13 @@ function selectFlow(flow) {
   }
 }
 for (const flow of ["sdk", "images"]) $("#flow-" + flow).addEventListener("click", () => {
-  if (state.busy || state.sdkRun || state.sdkStarting) return;
+  if (state.sdkStarting) return;
   selectFlow(flow);
-  $("#result-panel").hidden = !state.result || (state.result.mode === "sdk") !== (flow === "sdk");
 });
 function syncSdkControls() {
   const occupied = state.busy || Boolean(state.sdkRun) || state.sdkStarting;
-  $("#flow-sdk").disabled = occupied; $("#flow-images").disabled = occupied;
+  $("#flow-sdk").disabled = state.sdkStarting; $("#flow-images").disabled = state.sdkStarting;
+  $("#verify").disabled = occupied || !state.providerReady;
   $("#start-sdk").disabled = occupied || !state.providerReady;
   $("#start-sdk").hidden = Boolean(state.sdkRun);
   $("#stop-sdk").hidden = !state.sdkRun;
@@ -192,7 +204,7 @@ $("#start-sdk").addEventListener("click", async () => {
   }
   state.sdkStarting = true; syncSdkControls();
   try {
-    const run = await api("/api/sdk/runs", jsonOptions("POST", {consent: true}));
+    const run = await api("/api/sdk/runs", jsonOptions("POST", {consent: true, flow: "oval"}));
     state.sdkRun = run.id;
     $("#sdk-status").textContent = "Đang mở màn hình camera của VNPT Web SDK…";
     location.assign(`/sdk#run=${run.id}`);
@@ -218,27 +230,43 @@ $("#verify").addEventListener("click", async () => {
 });
 function renderResult(result) {
   state.result = result;
-  $("#result-panel").hidden = false; $("#progress-text").textContent = result.progress;
-  $("#calls").textContent = `${result.calls} request đã gửi đến VNPT`;
-  $(".spinner").hidden = result.status !== "running";
-  $("#result-error").hidden = !result.error; $("#result-error").textContent = result.error || "";
-  const badge = $("#result-badge");
+  const isOval = result.mode === "oval" || result.mode === "sdk";
+  const flow = isOval ? "sdk" : "images";
+  state.results[flow] = result;
+  const panel = isOval ? ovalPanel : $("#result-panel");
+  const get = id => panel.querySelector(`#${isOval ? "oval-" : ""}${id}`);
+  panel.hidden = state.flow !== flow;
+  panel.querySelector("h2").textContent = isOval ? "Kết quả Liveness Oval" : result.mode === "ocr" ? "Kết quả OCR" : "Kết quả kiểm tra ảnh";
+  get("progress-text").textContent = result.progress;
+  get("calls").textContent = `${result.calls} request đã gửi đến VNPT`;
+  panel.querySelector(".spinner").hidden = result.status !== "running";
+  get("result-error").hidden = !result.error; get("result-error").textContent = result.error || "";
+  const badge = get("result-badge");
   const states = result.checks.map(check => check.status);
-  const summary = result.status === "running" ? ["running", "Đang xử lý"] : result.status === "error" ? ["error", "Chưa hoàn tất"] : states.includes("fail") ? ["fail", "Có bước chưa đạt"] : states.includes("review") ? ["review", "Cần xem lại"] : ["pass", "Các bước đã chạy đạt"];
+  const summary = result.status === "running" ? ["running", "Đang xử lý"] : result.status === "error" ? ["error", "Chưa hoàn tất"] : states.includes("fail") ? ["fail", "Có bước chưa đạt"] : !states.length || states.includes("review") ? ["review", "Cần xem lại"] : ["pass", "Các bước đã chạy đạt"];
   badge.className = `badge ${summary[0]}`; badge.textContent = summary[1];
-  $("#check-results").replaceChildren(...result.checks.map(check => {
+  get("check-results").replaceChildren(...result.checks.map(check => {
     const row = document.createElement("div"); row.className = `check-row ${check.status}`;
     const icon = document.createElement("span"); icon.textContent = check.status === "pass" ? "✓" : check.status === "fail" ? "×" : "!";
     const content = document.createElement("div"); const strong = document.createElement("strong"); strong.textContent = check.label; const p = document.createElement("p"); p.textContent = check.message; content.append(strong, p);
     const status = document.createElement("small"); status.textContent = {pass: "Đạt", fail: "Chưa đạt", review: "Xem lại"}[check.status] || "Chưa rõ";
     row.append(icon, content, status); return row;
   }));
-  $("#extracted").hidden = !result.fields.length;
-  $("#extracted-fields").replaceChildren(...result.fields.map(field => {
+  get("extracted").hidden = !result.fields.length;
+  get("extracted-fields").replaceChildren(...result.fields.map(field => {
     const item = document.createElement("div"); const label = document.createElement("dt"); label.textContent = field.label; const value = document.createElement("dd"); value.textContent = field.value; item.append(label, value); return item;
   }));
-  $("#raw-result").textContent = JSON.stringify(result.raw, null, 2);
-  $("#download-result").disabled = result.status === "running";
+  const requests = result.requests || [];
+  get("request-log").hidden = !requests.length;
+  get("request-rows").replaceChildren(...requests.map(record => {
+    const row = document.createElement("tr");
+    const name = record.endpoint.endsWith("addFile") ? "Upload tệp" : record.endpoint.endsWith("liveness-3d") ? "Liveness Oval" : record.endpoint.endsWith("/mask") ? "Kiểm tra che mặt" : record.endpoint;
+    const values = [name, record.http_status ?? "—", record.gateway_status ?? "—", record.error_kind || record.code || record.status || "Đang gửi", record.elapsed_ms == null ? "—" : `${record.elapsed_ms} ms`];
+    for (const value of values) { const cell = document.createElement("td"); cell.textContent = String(value); row.append(cell); }
+    row.title = record.endpoint; return row;
+  }));
+  get("raw-result").textContent = JSON.stringify({results: result.raw, requests}, null, 2);
+  get("download-result").disabled = result.status === "running";
 }
 async function pollJob(id, failures = 0) {
   clearTimeout(state.poll);
@@ -247,14 +275,17 @@ async function pollJob(id, failures = 0) {
     if (result.status === "running") state.poll = setTimeout(() => pollJob(id), 1200);
   } catch (error) {
     if (state.csrf && failures < 4) { state.poll = setTimeout(() => pollJob(id, failures + 1), 2500); return; }
-    setBusy(false); $("#result-error").textContent = `${error.message} Nếu đã bắt đầu kiểm tra, đừng gửi lại ngay vì có thể phát sinh thêm request.`; $("#result-error").hidden = false; $(".spinner").hidden = true;
+    setBusy(false); $("#result-error").textContent = `${error.message} Nếu đã bắt đầu kiểm tra, đừng gửi lại ngay vì có thể phát sinh thêm request.`; $("#result-error").hidden = false; $("#result-panel .spinner").hidden = true;
   }
 }
-$("#download-result").addEventListener("click", () => {
-  if (!state.result) return;
-  const url = URL.createObjectURL(new Blob([JSON.stringify(state.result, null, 2)], {type: "application/json"}));
-  const anchor = document.createElement("a"); anchor.href = url; anchor.download = `ekyc-result-${state.result.id}.json`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-});
+for (const flow of ["images", "sdk"]) {
+  $(flow === "sdk" ? "#oval-download-result" : "#download-result").addEventListener("click", () => {
+    const result = state.results[flow];
+    if (!result) return;
+    const url = URL.createObjectURL(new Blob([JSON.stringify(result, null, 2)], {type: "application/json"}));
+    const anchor = document.createElement("a"); anchor.href = url; anchor.download = `ekyc-${result.mode}-${result.id}.json`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+}
 syncMode();
-selectFlow("sdk");
+selectFlow("images");
 bootstrap();

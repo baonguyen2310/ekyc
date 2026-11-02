@@ -10,7 +10,7 @@
 
 ## Đã kiểm tra
 
-- 42 test tự động qua: luồng ảnh đầy đủ/OCR và gateway Web SDK; tách phiên và kết quả, TTL, CSRF, mã truy cập sai có Unicode, không lộ Token trong cấu hình/lỗi, xác thực file ảnh, chặn endpoint và mã tệp ngoài lượt SDK, giữ nguyên blob quét, giới hạn request, không coi phản hồi thiếu hoặc NOMATCH là pass và không tự retry.
+- 49 test Python và 5 test JavaScript qua: luồng ảnh đầy đủ/OCR và gateway Web SDK; tách phiên/kết quả OCR–Oval, TTL, CSRF, mã truy cập sai có Unicode, không lộ Token, chặn endpoint/mã tệp ngoài lượt SDK, giữ nguyên blob quét, giới hạn request, xử lý timeout/mất kết nối/phản hồi sai và chặn upload sau lỗi.
 - Ruff check/format và cú pháp JavaScript qua.
 - Docker build thành công trên VPS; FastAPI healthcheck healthy; nginx phục vụ `/healthz` trả 200.
 - Truy cập HTTPS ngoài VPS trả HTTP/2 200; HTTP chuyển 308 sang HTTPS.
@@ -36,7 +36,7 @@ Giao diện hiển thị thông báo cụ thể cho hai lỗi ảnh đã quan s�
 
 VNPT hiển thị Access token có hạn 8 giờ và yêu cầu liên hệ để có API sinh Access token. Đây là điểm cần làm rõ nếu muốn tự động hóa lâu dài. Khi Token hết hạn, người quản trị cập nhật `.env` và recreate container API. Không thêm thao tác này vào client. Riêng Web SDK có thể tải trực tiếp từ bảng Website tại trang tải SDK; ngày 02/11/2026 đã tải và kiểm tra `web-sdk-version-3.2.1.0.zip`, không phải liên hệ mới lấy được bộ tệp.
 
-Lab có hai luồng: API ảnh và Camera · Web SDK Oval. Chưa có NFC hoặc C06/VNeID. Chưa dùng CCCD/selfie cá nhân để kiểm thử sinh trắc học của luồng SDK.
+Lab có hai phần độc lập: OCR giấy tờ (kèm tùy chọn kiểm tra ảnh nâng cao) và Liveness Oval chạy trực tiếp camera. Chưa có NFC hoặc C06/VNeID. Chưa kiểm chứng trọn lượt Oval bằng khuôn mặt thật sau bản sửa.
 
 Kiểm tra HTTPS sau bản cập nhật: backend báo sẵn sàng; route sửa Token cũ trả 404; so sánh với bộ khóa thực tế xác nhận khóa không nằm trong HTML, JavaScript hoặc phản hồi trạng thái. Phiên chẩn đoán riêng đã đăng xuất; cấu hình backend vẫn giữ nguyên. Chrome đã xác nhận không còn trường nhập Token và người dùng vào được màn hình chọn ảnh.
 
@@ -53,3 +53,11 @@ VNPT trả trạng thái mặt sau trong `msg_back`, còn service trước đó 
 Chrome trên bản HTTPS đã đi từ nút “Bắt đầu với camera” tới màn hình SDK “Chụp mặt trước”; nút “Kết thúc và xem kết quả” đưa về Lab và hiển thị đúng 0 request cùng các bước chưa có kết quả. Đã kiểm tra lại chế độ ảnh đầy đủ và OCR (ẩn chân dung, hiện 4 request). Ảnh màn hình triển khai: `evidence/ekyc-lab-web-sdk-live.jpg` tại bản local.
 
 Đã giữ nguyên `.env` quyền 600 khi cập nhật source. Bản source trước SDK ở `/srv/ekyc-lab-backups/before-web-sdk-20261102.tar.gz` (không gồm `.env`); image trước đó được giữ bằng tag `ekyc-lab-api:before-web-sdk-20261102`. Không thay đổi host hay repo Opskoo.
+
+## Tách OCR và Oval, xử lý lỗi SDK — 02/11/2026
+
+Luồng mới dùng `FACE`, tắt OCR/kiểm tra giấy tờ/so khớp trong Oval. Kết quả OCR và Oval được khôi phục độc lập khi quay về Lab. Luồng SDK gộp cũ vẫn được hỗ trợ qua `flow=document_face` để tương thích; giao diện mặc định dùng hai phần độc lập.
+
+Gateway ghi bản ghi request trước khi gọi VNPT để không bỏ mất request thất bại. Lỗi có loại cụ thể, HTTP upstream/gateway và thời gian; không lưu body lỗi, ảnh, blob quét hoặc khóa vào log. Deadline tổng 25 giây giúp trả lỗi trước nginx. SDK bị ngắt khi request lỗi, dừng camera, mở dialog ưu tiên và cho quay lại kết quả, chặn các upload tiếp theo. Lỗi extension Chrome không liên quan được bỏ qua.
+
+Kiểm tra trên Chrome ở bản local: mở Oval thẳng tới hướng dẫn khuôn mặt, không chụp CCCD; lỗi upload giả lập hiện dialog, thoát loading và quay về đúng kết quả Oval với `invalid_json`, VNPT HTTP 200/Lab HTTP 502. Fixture chỉ dùng mock transport, không gửi VNPT hoặc dùng dữ liệu cá nhân. Ảnh kiểm chứng local: `evidence/oval-synthetic-error.jpg`.

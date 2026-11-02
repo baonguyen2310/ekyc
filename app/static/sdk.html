@@ -14,8 +14,10 @@
 </head>
 <body>
   <header class="sdk-toolbar"><a href="/" class="sdk-brand">eKYC Lab</a><span>Camera · Liveness Oval</span><button id="sdk-finish" disabled>Kết thúc và xem kết quả</button></header>
+  <p id="sdk-progress" class="sdk-progress" role="status">Sẵn sàng quét khuôn mặt · Không cần OCR giấy tờ</p>
   <p id="sdk-loading" role="status">Đang mở VNPT Web SDK…</p>
   <p id="sdk-error" role="alert" hidden></p>
   <div id="ekyc_sdk_intergrated"></div>
+  <dialog id="sdk-failure" class="sdk-failure" role="alertdialog" aria-labelledby="sdk-failure-title" aria-describedby="sdk-failure-message" hidden><div><span class="failure-symbol">!</span><h1 id="sdk-failure-title">Lượt kiểm tra đã dừng</h1><p id="sdk-failure-message"></p><p id="sdk-failure-summary"></p><button id="sdk-view-results">Xem kết quả đã nhận</button></div></dialog>
 </body>
 </html>

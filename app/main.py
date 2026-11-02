@@ -263,8 +263,6 @@ def create_app(*, settings=None, client_factory=VnptClient, sdk_gateway_factory=
         own = [j for j in jobs.values() if j.owner == request.cookies[COOKIE]]
         own_sdk = [r for r in sdk_runs.values() if r.owner == request.cookies[COOKIE]]
         latest_sdk = own_sdk[-1] if own_sdk else None
-        if latest_sdk and own and latest_sdk.created < own[-1].created:
-            latest_sdk = None
         ready, message = provider_status()
         return {
             "provider_ready": ready,
@@ -272,7 +270,7 @@ def create_app(*, settings=None, client_factory=VnptClient, sdk_gateway_factory=
             "provider_expires_at": provider_expires_at,
             "csrf": session.csrf,
             "session_expires_at": int(session.expires),
-            "latest_job": own[-1].id if own and latest_sdk is None else None,
+            "latest_job": own[-1].id if own else None,
             "latest_sdk": latest_sdk.id if latest_sdk else None,
             "sdk_version": "3.2.1.0",
         }

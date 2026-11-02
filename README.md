@@ -7,12 +7,13 @@ Service thử nghiệm VNPT eKYC độc lập, dùng FastAPI + giao diện HTML/
 - Đăng nhập bằng mã truy cập riêng. Có thể dùng link `https://tools.opskoo.com/#access=...`; trang xóa fragment trước khi gửi mã đăng nhập. Không ghi mã vào query string, access log hoặc localStorage.
 - Backend đọc **Token ID, Token Key, Access token** từ `/srv/ekyc-lab/.env`. Người thử không nhập, xem hoặc sửa bộ Token trên giao diện/API. Không trả khóa về trình duyệt.
 - Chụp bằng camera hoặc tải ảnh JPG/PNG/WebP (tối đa 5 MB/ảnh).
-- **Chỉ OCR:** upload hai mặt rồi gọi OCR từng mặt, tối đa 4 request gửi đến VNPT.
-- **Giấy tờ & chân dung:** upload ba ảnh, OCR hai mặt, card liveness hai mặt, face liveness, mask, compare; tối đa 10 request. Bỏ card liveness còn 8 request.
+- **Đọc giấy tờ (OCR):** mặc định chỉ upload hai mặt rồi gọi OCR từng mặt, tối đa 4 request gửi đến VNPT. Kết quả được giữ riêng với Oval.
+- **Kiểm tra ảnh nâng cao:** tùy chọn trong phần OCR, giữ luồng API ảnh cũ gồm ba ảnh, OCR, card liveness hai mặt, face liveness, mask, compare; tối đa 10 request. Bỏ card liveness còn 8 request.
 - Hiển thị tiến trình, kết quả từng kiểm tra, thông tin trích xuất, phản hồi JSON và tải kết quả về máy.
-- **Camera · Web SDK Oval:** bộ Web SDK chính thức 3.2.1.0, chụp hai mặt giấy tờ rồi quét khuôn mặt gần–xa (`DOUBLE_LIVENESS=true`). SDK gửi dữ liệu quét `scan3d` đến API `/ai/v1/web/face/liveness-3d`, kiểm tra che mặt và so khớp. Giới hạn 14 request/lượt; có nút kết thúc để tắt camera. Không tự động chuyển sang liveness ảnh khi oval lỗi.
+- **Liveness Oval:** bộ Web SDK chính thức 3.2.1.0 chạy `SDK_FLOW=FACE`, quét khuôn mặt gần–xa (`DOUBLE_LIVENESS=true`) và kiểm tra che mặt. Không cần CCCD hoặc làm OCR trước; không gọi API giấy tờ hoặc so khớp. Một lượt thông thường gồm 3 upload và 2 API kiểm tra, giới hạn 14 request. Có kết quả riêng và nút kết thúc để tắt camera. Không tự chuyển sang liveness ảnh khi Oval lỗi.
 - SDK mở ở màn hình camera riêng cùng origin để có đủ diện tích và tách CSS; kết thúc sẽ trở về kết quả trong Lab. Các API SDK đi qua gateway có session/CSRF, endpoint cố định và chỉ nhận mã tệp được upload trong chính lượt đó. Cấu hình SDK không chứa khóa VNPT; backend thêm khóa từ `.env` khi gọi nhà cung cấp. Kết quả lấy từ phản hồi upstream, không nhận trạng thái đạt do callback phía client tự khai báo.
 - Không đọc NFC, không xác thực C06/VNeID, không ghi vào kho Face ID. Không bật ghi/lưu video MP4; SDK vẫn tạo dữ liệu quét cần cho liveness oval.
+- Khi API lỗi, SDK được dừng và thông báo bằng dialog nằm trên lớp loading của vendor. Các request sau bị chặn, không tự retry. Kết quả có nhật ký từng request, kể cả lần thất bại: HTTP từ VNPT, HTTP của Lab, loại lỗi và thời gian. Gateway có hạn tổng 25 giây, ngắn hơn hạn nginx 30 giây; phân biệt timeout, mất kết nối, JSON sai và thiếu mã upload. Không lưu body lỗi upstream hoặc ảnh/quét vào log.
 
 Các endpoint và payload được đối chiếu với [tài liệu API](https://ekyc.vnpt.vn/admin-dashboard/vi/documents/api), [hướng dẫn Web SDK](https://ekyc.vnpt.vn/admin-dashboard/vi/documents/sdk-web) và bộ `web-sdk-version-3.2.1.0.zip` tải từ [VNPT](https://ekyc.vnpt.vn/admin-dashboard/vi/documents/download) ngày 02/11/2026. Bộ 3.2.1.0 dùng `SDK.launch` và `DOUBLE_LIVENESS`, khác ví dụ `ekycsdk.init`/`ADVANCE_LIVENESS_FACE` của bản 2.1.0 trong tài liệu web. Vendor assets được giữ nguyên tại `app/static/vendor/vnpt-3.2.1.0`; trang mẫu có token demo không được đưa vào service. `provenance.json` lưu nguồn và SHA-256 archive. Chưa kiểm thử sinh trắc học bằng giấy tờ và khuôn mặt thật trên luồng SDK.
 
@@ -37,6 +38,7 @@ PUBLIC_ORIGIN=http://127.0.0.1:8103 COOKIE_SECURE=false \
 .venv/bin/pytest -q
 .venv/bin/ruff check app tests
 node --check app/static/app.js
+node --test tests/sdk-client.test.cjs
 ```
 
 ## Triển khai trên Civo

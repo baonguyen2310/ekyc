@@ -1,10 +1,13 @@
 """Session-bound gateway for the official VNPT Web SDK. Provider keys stay server-side."""
 
+import asyncio
 import json
+import logging
 import re
 import secrets
 import time
 from dataclasses import dataclass, field
+from typing import Literal
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
@@ -15,6 +18,7 @@ from .provider import BASE_URL, SUCCESS, check_result, extracted_fields
 
 SDK_TTL = 20 * 60
 MAX_CALLS = 14
+logger = logging.getLogger(__name__)
 UPLOAD = "/file-service/v1/addFile"
 RULES = {
     "/ai/v1/web/card/liveness": ("img",),
@@ -28,6 +32,17 @@ RULES = {
 
 class SdkConsent(BaseModel):
     consent: bool
+    flow: Literal["oval", "document_face"] = "oval"
+
+
+class SdkFinish(BaseModel):
+    client_error: Literal["sdk_runtime", "network", "gateway_response"] | None = None
+
+
+class SdkResponseError(ValueError):
+    def __init__(self, kind, message):
+        self.kind = kind
+        super().__init__(message)
 
 
 def without_media(value):
@@ -50,6 +65,7 @@ def without_media(value):
 class SdkRun:
     id: str
     owner: str = field(repr=False)
+    flow: str = "oval"
     created: float = field(default_factory=time.time)
     active: bool = True
     calls: int = 0
@@ -64,11 +80,19 @@ class SdkRun:
     def response(self):
         checks = list(self.checks.values())
         if not self.active:
-            for key, label in (
-                ("ocr_front", "Đọc giấy tờ"),
+            expected = [
                 ("liveness", "Kiểm tra người thật · Oval gần–xa"),
-                ("compare", "So khớp khuôn mặt"),
-            ):
+                ("mask", "Kiểm tra che mặt"),
+            ]
+            if self.flow == "document_face":
+                expected += [
+                    ("ocr_front", "Đọc mặt trước"),
+                    ("ocr_back", "Đọc mặt sau"),
+                    ("card_front", "Kiểm tra giấy tờ mặt trước"),
+                    ("card_back", "Kiểm tra giấy tờ mặt sau"),
+                    ("compare", "So khớp khuôn mặt"),
+                ]
+            for key, label in expected:
                 if key not in self.checks:
                     checks.append(
                         {
@@ -81,7 +105,8 @@ class SdkRun:
         ocr = self.raw.get("ocr", {})
         return {
             "id": self.id,
-            "mode": "sdk",
+            "mode": "oval" if self.flow == "oval" else "sdk",
+            "flow": self.flow,
             "status": "running"
             if self.active or self.inflight
             else "error"
@@ -108,7 +133,8 @@ class SdkGateway:
                 "Authorization": f"Bearer {credentials.access_token}",
                 "mac-address": "EKYCLAB-WEBSDK",
             },
-            timeout=httpx.Timeout(60, connect=10),
+            # Respond before nginx's 30-second upstream deadline.
+            timeout=httpx.Timeout(25, connect=10),
             follow_redirects=False,
             transport=transport,
         )
@@ -163,7 +189,7 @@ def sdk_router(*, cookie, sessions, credentials, provider_status, starts, jobs, 
         if len(starts) >= 20:
             raise HTTPException(429, "Service đã đạt giới hạn 20 lượt mỗi giờ.")
         starts.append(now)
-        run = SdkRun(secrets.token_hex(16), sid)
+        run = SdkRun(secrets.token_hex(16), sid, flow=body.flow)
         runs[run.id] = run
         return {"id": run.id, "max_calls": MAX_CALLS, "expires_at": int(now + SDK_TTL)}
 
@@ -174,13 +200,19 @@ def sdk_router(*, cookie, sessions, credentials, provider_status, starts, jobs, 
     @router.get("/api/sdk/runs/{run_id}/config")
     async def config(run_id: str, request: Request):
         run = owned(run_id, request, active=True)
+        oval_only = run.flow == "oval"
         return {
             "BACKEND_URL": f"/api/sdk/runs/{run.id}/proxy",
             "TOKEN_ID": "",
             "TOKEN_KEY": "",
             "ACCESS_TOKEN": "",
             "HEADERS_REQUEST": {"X-CSRF-Token": sessions[run.owner].csrf},
-            "SDK_FLOW": "DOCUMENT_TO_FACE",
+            "SDK_FLOW": "FACE" if oval_only else "DOCUMENT_TO_FACE",
+            "ENABLE_API_OCR_DOCUMENT": not oval_only,
+            "ENABLE_API_LIVENESS_DOCUMENT": not oval_only,
+            "ENABLE_API_COMPARE_FACE": not oval_only,
+            "ENABLE_API_MASKED_FACE": True,
+            "SHOW_STEP": not oval_only,
             "DOCUMENT_TYPE_START": 9,
             "LIST_TYPE_DOCUMENT": [-1, 9],
             "HAS_QR_SCAN": False,
@@ -205,8 +237,14 @@ def sdk_router(*, cookie, sessions, credentials, provider_status, starts, jobs, 
         }
 
     @router.post("/api/sdk/runs/{run_id}/finish")
-    async def finish(run_id: str, request: Request):
+    async def finish(run_id: str, request: Request, body: SdkFinish | None = None):
         run = owned(run_id, request)
+        if body and body.client_error and not run.error:
+            run.error = {
+                "sdk_runtime": "SDK không hoàn tất xử lý dữ liệu quét trên trình duyệt.",
+                "network": "Kết nối bị gián đoạn hoặc quá thời gian chờ trên trình duyệt.",
+                "gateway_response": "Trình duyệt không nhận được phản hồi hợp lệ từ gateway.",
+            }[body.client_error]
         run.active = False
         return run.response()
 
@@ -222,6 +260,14 @@ def sdk_router(*, cookie, sessions, credentials, provider_status, starts, jobs, 
         endpoint = "/" + path
         if endpoint != UPLOAD and endpoint not in RULES:
             raise HTTPException(404, "Endpoint không được phép trong eKYC Lab.")
+        if run.flow == "oval" and endpoint not in {
+            UPLOAD,
+            "/ai/v1/web/face/liveness-3d",
+            "/ai/v1/web/face/mask",
+        }:
+            raise HTTPException(
+                422, "Lượt Oval chỉ kiểm tra người thật và che mặt, không chạy OCR hoặc so khớp."
+            )
         ready, message = provider_status()
         if not ready:
             raise HTTPException(503, message)
@@ -233,6 +279,31 @@ def sdk_router(*, cookie, sessions, credentials, provider_status, starts, jobs, 
             raise HTTPException(429, "Đang có nhiều request trong lượt kiểm tra.")
         run.inflight += 1
         gateway = None
+        record = None
+        started = time.monotonic()
+
+        def failed(kind, message, status_code=502, code="LAB_UPSTREAM_ERROR"):
+            run.error = message
+            run.failures[endpoint] = message
+            if record is not None:
+                record.update(
+                    status="error",
+                    error_kind=kind,
+                    gateway_status=status_code,
+                    elapsed_ms=round((time.monotonic() - started) * 1000),
+                )
+            logger.warning(
+                "sdk_gateway_failure run=%s endpoint=%s kind=%s upstream_http=%s",
+                run.id,
+                endpoint,
+                kind,
+                record.get("http_status") if record else None,
+            )
+            return JSONResponse(
+                {"message": code, "error": message, "detail": message, "error_kind": kind},
+                status_code=status_code,
+            )
+
         try:
             if endpoint == UPLOAD:
                 async with request.form(
@@ -298,35 +369,61 @@ def sdk_router(*, cookie, sessions, credentials, provider_status, starts, jobs, 
             if run.calls >= MAX_CALLS:
                 raise HTTPException(429, "Đã đạt giới hạn request của lượt Web SDK.")
             run.calls += 1
+            record = {
+                "endpoint": endpoint,
+                "http_status": None,
+                "gateway_status": None,
+                "code": None,
+                "status": "pending",
+            }
+            run.records.append(record)
             gateway = gateway_factory(credentials)
-            response = await gateway.send(endpoint, **kwargs)
+            async with asyncio.timeout(25):
+                response = await gateway.send(endpoint, **kwargs)
+            record.update(
+                http_status=response.status_code,
+                content_type=response.headers.get("content-type", "")[:120],
+            )
             if len(response.content) > 2_000_000:
-                raise ValueError("Oversized upstream response")
+                raise SdkResponseError(
+                    "oversized_response", "Phản hồi VNPT vượt kích thước cho phép."
+                )
             # A vendor error must not reflect our injected provider keys back to the browser.
             text = response.text
             for secret in (credentials.token_id, credentials.token_key, credentials.access_token):
                 text = text.replace(secret, "[REDACTED]")
-            body = json.loads(text)
+            try:
+                body = json.loads(text)
+            except ValueError as exc:
+                raise SdkResponseError(
+                    "invalid_json",
+                    f"VNPT trả phản hồi không phải JSON (HTTP {response.status_code}).",
+                ) from exc
             if not isinstance(body, dict):
-                raise ValueError("Invalid upstream envelope")
-            obj = body.get("object")
-            if isinstance(obj, str):
-                obj = json.loads(obj)
-                body["object"] = obj
+                raise SdkResponseError("invalid_response", "Cấu trúc phản hồi VNPT không hợp lệ.")
             code = body.get("message", "UNKNOWN")
             code = (
                 code if isinstance(code, str) and re.fullmatch(r"IDG-[0-9]{8}", code) else "UNKNOWN"
             )
-            run.records.append(
-                {"endpoint": endpoint, "http_status": response.status_code, "code": code}
-            )
+            record["code"] = code
+            obj = body.get("object")
+            if 200 <= response.status_code < 300 and code == SUCCESS and isinstance(obj, str):
+                try:
+                    obj = json.loads(obj)
+                    body["object"] = obj
+                except ValueError as exc:
+                    raise SdkResponseError(
+                        "invalid_object", "VNPT trả trường object không đọc được."
+                    ) from exc
             if 200 <= response.status_code < 300 and code == SUCCESS and isinstance(obj, dict):
                 run.failures.pop(endpoint, None)
                 run.error = next(iter(run.failures.values()), None)
                 if endpoint == UPLOAD:
                     value = obj.get("hash")
                     if not isinstance(value, str) or not value or len(value) > 2048:
-                        raise ValueError("Missing upload hash")
+                        raise SdkResponseError(
+                            "missing_hash", "VNPT không trả mã tệp sau khi upload."
+                        )
                     run.hashes.add(value)
                 elif "/ocr/" in endpoint:
                     run.raw["ocr"] = without_media(obj)
@@ -349,20 +446,53 @@ def sdk_router(*, cookie, sessions, credentials, provider_status, starts, jobs, 
                     run.raw[key] = without_media(obj)
                     record_check(run, key, label, obj)
             else:
-                run.error = f"VNPT chưa hoàn tất bước {endpoint.rsplit('/', 1)[-1]} (HTTP {response.status_code}, mã {code})."
-                run.failures[endpoint] = run.error
-                run.raw.setdefault("errors", []).append(
-                    {"endpoint": endpoint, "http_status": response.status_code, "code": code}
+                if 200 <= response.status_code < 300 and code == SUCCESS:
+                    raise SdkResponseError(
+                        "missing_object", "VNPT không trả dữ liệu object cho bước kiểm tra."
+                    )
+                kind = (
+                    "authorization"
+                    if response.status_code in {401, 403}
+                    else "quota"
+                    if response.status_code == 429
+                    else "upstream_http"
                 )
+                message = f"VNPT chưa hoàn tất bước {endpoint.rsplit('/', 1)[-1]} (HTTP {response.status_code}, mã {code})."
+                return failed(
+                    kind,
+                    message,
+                    response.status_code if 400 <= response.status_code <= 599 else 502,
+                    code,
+                )
+            record.update(status="completed", gateway_status=response.status_code)
             # Only the JSON body is forwarded, never upstream headers or client-supplied credentials.
             return JSONResponse(body, status_code=response.status_code)
-        except (httpx.RequestError, ValueError, TypeError):
-            run.error = "Chưa nhận được phản hồi hợp lệ từ VNPT. Không tự động gửi lại để tránh tốn hạn mức."
-            run.failures[endpoint] = run.error
-            return JSONResponse(
-                {"message": "LAB_UPSTREAM_ERROR", "error": run.error}, status_code=502
+        except (httpx.TimeoutException, TimeoutError):
+            return failed(
+                "timeout",
+                "VNPT phản hồi quá thời gian chờ. Lượt thử đã dừng; gửi lại có thể tốn thêm hạn mức.",
+                504,
+                "LAB_VNPT_TIMEOUT",
+            )
+        except httpx.RequestError:
+            return failed(
+                "connection",
+                "Không nhận được phản hồi từ kết nối VNPT. Lượt thử đã dừng, không tự gửi lại.",
+            )
+        except SdkResponseError as exc:
+            return failed(exc.kind, str(exc))
+        except (ValueError, TypeError):
+            return failed(
+                "invalid_response",
+                "Không đọc được cấu trúc phản hồi VNPT. Xem chi tiết request trong kết quả.",
+            )
+        except HTTPException as exc:
+            return failed(
+                "request_rejected", str(exc.detail), exc.status_code, "LAB_INVALID_REQUEST"
             )
         finally:
+            if record is not None:
+                record["elapsed_ms"] = round((time.monotonic() - started) * 1000)
             run.inflight -= 1
             if gateway:
                 await gateway.close()

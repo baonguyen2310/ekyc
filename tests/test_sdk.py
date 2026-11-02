@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from test_lab import CONFIG, KEYS, ORIGIN, files, login
 
-from app.main import create_app
+from app.main import COOKIE, Job, create_app
 from app.provider import SUCCESS
 from app.sdk import MAX_CALLS, SdkGateway
 
@@ -13,10 +13,16 @@ from app.sdk import MAX_CALLS, SdkGateway
 @pytest.fixture
 def sdk():
     sent = []
-    reply = {"status": 200, "body": None}
+    reply = {"status": 200, "body": None, "raw": None, "exception": None}
 
     def handle(request):
         sent.append(request)
+        if reply["exception"]:
+            raise reply["exception"]("synthetic transport failure", request=request)
+        if reply["raw"] is not None:
+            return httpx.Response(
+                reply["status"], content=reply["raw"], headers={"content-type": "text/html"}
+            )
         path = request.url.path
         if reply["body"] is not None:
             return httpx.Response(reply["status"], json=reply["body"])
@@ -46,7 +52,9 @@ def sdk():
     )
     with TestClient(app, base_url=ORIGIN) as client:
         headers = login(client)
-        response = client.post("/api/sdk/runs", json={"consent": True}, headers=headers)
+        response = client.post(
+            "/api/sdk/runs", json={"consent": True, "flow": "document_face"}, headers=headers
+        )
         assert response.status_code == 201
         run_id = response.json()["id"]
         yield app, client, headers, run_id, sent, reply
@@ -254,3 +262,126 @@ def test_sdk_success_after_retry_clears_only_that_endpoint_failure(sdk):
     upload(client, headers, run_id)
     assert app.state.sdk_runs[run_id].error is None
     assert len(app.state.sdk_runs[run_id].records) == 2
+
+
+def start_oval(client, headers, old_id):
+    client.post(f"/api/sdk/runs/{old_id}/finish", json={}, headers=headers)
+    response = client.post("/api/sdk/runs", json={"consent": True}, headers=headers)
+    assert response.status_code == 201
+    return response.json()["id"]
+
+
+def test_oval_runs_without_documents_and_never_calls_ocr_or_compare(sdk):
+    app, client, headers, old_id, sent, reply = sdk
+    run_id = start_oval(client, headers, old_id)
+    config = client.get(f"/api/sdk/runs/{run_id}/config").json()
+    assert config["SDK_FLOW"] == "FACE"
+    assert config["SHOW_STEP"] is False
+    assert config["ENABLE_API_OCR_DOCUMENT"] is False
+    assert config["ENABLE_API_LIVENESS_DOCUMENT"] is False
+    assert config["ENABLE_API_COMPARE_FACE"] is False
+    assert config["ENABLE_API_LIVENESS_FACE"] is True
+    assert config["ENABLE_API_MASKED_FACE"] is True
+    prefix = f"/api/sdk/runs/{run_id}/proxy"
+    for path in ["ocr/id", "card/liveness", "face/compare"]:
+        assert (
+            client.post(prefix + "/ai/v1/web/" + path, json={}, headers=headers).status_code == 422
+        )
+    assert sent == []
+    scan, near, far = [upload(client, headers, run_id) for _ in range(3)]
+    for path, payload in [
+        ("face/liveness-3d", {"scan3d": scan, "near_img": near, "far_img": far}),
+        ("face/mask", {"img": near}),
+    ]:
+        response = client.post(
+            prefix + "/ai/v1/web/" + path,
+            json={**payload, "client_session": "WEB-SDK_Safari-18_3.2.1_test_123"},
+            headers=headers,
+        )
+        assert response.status_code == 200
+    result = client.post(f"/api/sdk/runs/{run_id}/finish", json={}, headers=headers).json()
+    assert result["mode"] == "oval"
+    assert result["calls"] == 5
+    assert result["fields"] == []
+    assert {check["key"] for check in result["checks"]} == {"liveness", "mask"}
+    assert all(check["status"] == "pass" for check in result["checks"])
+    assert len(result["requests"]) == 5
+
+
+def test_cancelled_oval_expects_only_liveness_and_mask(sdk):
+    app, client, headers, old_id, sent, reply = sdk
+    run_id = start_oval(client, headers, old_id)
+    result = client.post(f"/api/sdk/runs/{run_id}/finish", json={}, headers=headers).json()
+    assert {check["key"] for check in result["checks"]} == {"liveness", "mask"}
+    assert all(check["status"] == "review" for check in result["checks"])
+
+
+@pytest.mark.parametrize(
+    "exception,kind,status",
+    [(httpx.ReadTimeout, "timeout", 504), (httpx.ConnectError, "connection", 502)],
+)
+def test_failed_upload_keeps_failed_request_in_history(sdk, exception, kind, status):
+    app, client, headers, run_id, sent, reply = sdk
+    reply["exception"] = exception
+    response = client.post(
+        f"/api/sdk/runs/{run_id}/proxy/file-service/v1/addFile",
+        files={"file": ("blob", b"opaque-scan", "text")},
+        headers=headers,
+    )
+    assert response.status_code == status
+    assert response.json()["error_kind"] == kind
+    result = client.post(f"/api/sdk/runs/{run_id}/finish", json={}, headers=headers).json()
+    assert result["calls"] == len(result["requests"]) == 1
+    record = result["requests"][0]
+    assert record["http_status"] is None
+    assert record["gateway_status"] == status
+    assert record["error_kind"] == kind
+    assert record["status"] == "error"
+    assert record["elapsed_ms"] >= 0
+    assert "synthetic transport failure" not in json.dumps(result)
+
+
+def test_non_json_upload_response_is_diagnosable_without_storing_body(sdk):
+    app, client, headers, run_id, sent, reply = sdk
+    reply["raw"] = b"<html>private-vendor-diagnostic-body</html>"
+    response = client.post(
+        f"/api/sdk/runs/{run_id}/proxy/file-service/v1/addFile",
+        files={"file": ("blob", b"opaque-scan", "text")},
+        headers=headers,
+    )
+    assert response.status_code == 502
+    assert response.json()["error_kind"] == "invalid_json"
+    result = client.get(f"/api/sdk/runs/{run_id}").json()
+    record = result["requests"][0]
+    assert record["http_status"] == 200
+    assert record["gateway_status"] == 502
+    assert record["content_type"] == "text/html"
+    assert record["error_kind"] == "invalid_json"
+    assert "private-vendor-diagnostic-body" not in json.dumps(result)
+
+
+def test_ocr_result_is_retained_independently_of_latest_oval(sdk):
+    app, client, headers, old_id, sent, reply = sdk
+    owner = client.cookies.get(COOKIE)
+    job = Job("separate-ocr-job", owner, "ocr", False, status="completed")
+    app.state.jobs[job.id] = job
+    run_id = start_oval(client, headers, old_id)
+    status = client.get("/api/status").json()
+    assert status["latest_job"] == job.id
+    assert status["latest_sdk"] == run_id
+    assert client.get(f"/api/jobs/{job.id}").json()["mode"] == "ocr"
+
+
+def test_client_runtime_failure_is_retained_without_trusting_client_success(sdk):
+    app, client, headers, old_id, sent, reply = sdk
+    run_id = start_oval(client, headers, old_id)
+    response = client.post(
+        f"/api/sdk/runs/{run_id}/finish",
+        json={"client_error": "sdk_runtime", "liveness": "success"},
+        headers=headers,
+    )
+    result = response.json()
+    assert result["status"] == "error"
+    assert "SDK" in result["error"]
+    assert result["calls"] == 0
+    assert all(check["status"] == "review" for check in result["checks"])
