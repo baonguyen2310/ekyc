@@ -61,3 +61,9 @@ Luồng mới dùng `FACE`, tắt OCR/kiểm tra giấy tờ/so khớp trong Ova
 Gateway ghi bản ghi request trước khi gọi VNPT để không bỏ mất request thất bại. Lỗi có loại cụ thể, HTTP upstream/gateway và thời gian; không lưu body lỗi, ảnh, blob quét hoặc khóa vào log. Deadline tổng 25 giây giúp trả lỗi trước nginx. SDK bị ngắt khi request lỗi, dừng camera, mở dialog ưu tiên và cho quay lại kết quả, chặn các upload tiếp theo. Lỗi extension Chrome không liên quan được bỏ qua.
 
 Kiểm tra trên Chrome ở bản local: mở Oval thẳng tới hướng dẫn khuôn mặt, không chụp CCCD; lỗi upload giả lập hiện dialog, thoát loading và quay về đúng kết quả Oval với `invalid_json`, VNPT HTTP 200/Lab HTTP 502. Fixture chỉ dùng mock transport, không gửi VNPT hoặc dùng dữ liệu cá nhân. Ảnh kiểm chứng local: `evidence/oval-synthetic-error.jpg`.
+
+### Bổ sung tab Luồng đầy đủ — 02/11/2026
+
+Tab thứ ba mở luồng SDK `DOCUMENT_TO_FACE` đã có trong gateway, bật OCR, kiểm tra giấy tờ, Oval, mask và compare. So khớp dùng ảnh khuôn mặt SDK thu trong lượt đó với ảnh giấy tờ cùng lượt; không lấy kết quả hoặc mã ảnh từ hai tab độc lập để ghép vào. Kết quả của cả ba tab được khôi phục riêng qua `latest_sdk_by_flow`, vẫn giữ trường `latest_sdk` tương thích. Kết thúc hoặc lỗi sẽ quay về đúng tab. Cơ chế giới hạn request, session/CSRF, giữ khóa ở backend và xử lý lỗi không thay đổi.
+
+Theo yêu cầu giữ hạn mức VNPT, thay đổi này chỉ kiểm tra tĩnh/cú pháp; không chạy kiểm thử gọi API, không mở lượt SDK, không upload hoặc gửi request chẩn đoán đến VNPT. Có bổ sung test giả lập cho cấu hình đầy đủ, khôi phục ba kết quả độc lập và điều hướng khi hoàn tất/lỗi; chưa chạy các test đó trong lần cập nhật này.

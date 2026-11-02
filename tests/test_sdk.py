@@ -77,6 +77,10 @@ def test_sdk_uses_server_keys_and_real_oval_config(sdk):
     assert config["DOUBLE_LIVENESS"] is True
     assert config["ENABLE_API_LIVENESS_FACE"] is True
     assert config["USE_METHOD"] == "PHOTO"
+    assert config["SDK_FLOW"] == "DOCUMENT_TO_FACE"
+    assert config["ENABLE_API_OCR_DOCUMENT"] is True
+    assert config["ENABLE_API_LIVENESS_DOCUMENT"] is True
+    assert config["ENABLE_API_COMPARE_FACE"] is True
     assert config["FACE_SCAN_RECORD"] is False
     assert config["HEADERS_REQUEST"]["X-CSRF-Token"] == headers["x-csrf-token"]
     assert config["ACCESS_TOKEN"] == config["TOKEN_KEY"] == config["TOKEN_ID"] == ""
@@ -369,7 +373,33 @@ def test_ocr_result_is_retained_independently_of_latest_oval(sdk):
     status = client.get("/api/status").json()
     assert status["latest_job"] == job.id
     assert status["latest_sdk"] == run_id
+    assert status["latest_sdk_by_flow"] == {"document_face": old_id, "oval": run_id}
     assert client.get(f"/api/jobs/{job.id}").json()["mode"] == "ocr"
+
+
+def test_all_three_result_histories_survive_a_new_full_run(sdk):
+    app, client, headers, old_id, sent, reply = sdk
+    owner = client.cookies.get(COOKIE)
+    job = Job("independent-ocr", owner, "ocr", False, status="completed")
+    app.state.jobs[job.id] = job
+    oval_id = start_oval(client, headers, old_id)
+    client.post(f"/api/sdk/runs/{oval_id}/finish", json={}, headers=headers)
+    response = client.post(
+        "/api/sdk/runs", json={"consent": True, "flow": "document_face"}, headers=headers
+    )
+    assert response.status_code == 201
+    full_id = response.json()["id"]
+    status = client.get("/api/status").json()
+    assert status["latest_job"] == job.id
+    assert status["latest_sdk"] == full_id
+    assert status["latest_sdk_by_flow"] == {"document_face": full_id, "oval": oval_id}
+    other = TestClient(app, base_url=ORIGIN)
+    try:
+        login(other)
+        assert other.get("/api/status").json()["latest_sdk_by_flow"] == {}
+    finally:
+        other.close()
+    assert not sent, "History restoration must not send requests to VNPT"
 
 
 def test_client_runtime_failure_is_retained_without_trusting_client_success(sdk):

@@ -3,13 +3,25 @@ const $ = (selector) => document.querySelector(selector);
 const state = {csrf: "", providerReady: false, providerMessage: "", busy: false, images: {}, urls: {}, stream: null, slot: null, result: null, timer: null};
 const mode = () => document.querySelector('input[name="mode"]:checked').value;
 const labels = {front: "mặt trước", back: "mặt sau", selfie: "chân dung"};
-Object.assign(state, {flow: "images", sdkRun: null, sdkStarting: false, results: {images: null, sdk: null}});
-const ovalPanel = $("#result-panel").cloneNode(true);
-ovalPanel.id = "oval-result-panel";
-ovalPanel.querySelectorAll("[id]").forEach(node => { node.id = "oval-" + node.id; });
-ovalPanel.querySelector("h2").textContent = "Kết quả Liveness Oval";
-ovalPanel.querySelector(".result-note").textContent = "Oval kiểm tra người thật và che mặt. Kết quả này độc lập với OCR, chưa xác nhận người đó là chủ giấy tờ.";
-$("#sdk-panel").insertAdjacentElement("afterend", ovalPanel);
+Object.assign(state, {flow: "images", sdkRun: null, sdkRunFlow: null, sdkStarting: false, results: {images: null, sdk: null, full: null}});
+const resultPanels = {images: $("#result-panel")};
+const sdkFlows = {
+  sdk: {requestFlow: "oval", tab: "oval", prefix: "oval-", title: "Kết quả Liveness Oval", note: "Oval kiểm tra người thật và che mặt. Kết quả này độc lập với OCR, chưa xác nhận người đó là chủ giấy tờ."},
+  full: {requestFlow: "document_face", tab: "full", prefix: "full-", title: "Kết quả luồng đầy đủ", note: "So khớp đối chiếu ảnh trên CCCD với ảnh khuôn mặt ghi nhận trong lượt quét Oval này. Chỉ các bước có phản hồi từ VNPT mới được đánh giá; điểm so khớp không phải xác suất đúng danh tính. Không xác thực chip hoặc đối chiếu C06/VNeID."}
+};
+for (const [flow, config] of Object.entries(sdkFlows)) {
+  const panel = resultPanels.images.cloneNode(true);
+  panel.id = `${config.prefix}result-panel`;
+  panel.querySelectorAll("[id]").forEach(node => { node.id = config.prefix + node.id; });
+  panel.querySelector("h2").textContent = config.title;
+  panel.querySelector(".result-note").textContent = config.note;
+  $(`#${flow}-panel`).insertAdjacentElement("afterend", panel);
+  resultPanels[flow] = panel;
+}
+function sdkControls(flow) {
+  return {start: $(`#start-${flow}`), stop: $(`#stop-${flow}`), consent: $(`#${flow}-consent`), error: $(`#${flow}-error`), status: $(`#${flow}-status`)};
+}
+const resultFlow = result => result.flow === "document_face" || result.mode === "sdk" ? "full" : result.mode === "oval" ? "sdk" : "images";
 
 async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
@@ -26,15 +38,21 @@ async function api(path, options = {}) {
 function jsonOptions(method, data) { return {method, headers: {"Content-Type": "application/json"}, body: JSON.stringify(data)}; }
 function toast(message) { $("#toast").textContent = message; $("#toast").hidden = false; clearTimeout(state.timer); state.timer = setTimeout(() => $("#toast").hidden = true, 3500); }
 function showAccess() {
-  state.sdkRun = null; state.sdkStarting = false;
+  state.sdkRun = null; state.sdkRunFlow = null; state.sdkStarting = false;
   $("#access-panel").hidden = false; $("#workspace").hidden = true; $("#header-actions").hidden = true;
   state.csrf = ""; state.providerReady = false; state.result = null; clearTimeout(state.poll); setBusy(false);
-  state.results = {images: null, sdk: null};
+  state.results = {images: null, sdk: null, full: null};
   for (const slot of Object.keys(state.images)) clearImage(slot);
-  $("#raw-result").textContent = ""; $("#extracted-fields").replaceChildren(); $("#check-results").replaceChildren(); $("#result-panel").hidden = true; $("#consent").checked = false;
+  $("#consent").checked = false;
   $("#camera-dialog").close(); stopCamera();
-  ovalPanel.hidden = true; $("#sdk-consent").checked = false;
-  ovalPanel.querySelectorAll("pre, dl, .check-results, tbody").forEach(node => node.replaceChildren());
+  for (const panel of Object.values(resultPanels)) {
+    panel.hidden = true;
+    panel.querySelectorAll("pre, dl, .check-results, tbody").forEach(node => node.replaceChildren());
+  }
+  for (const flow of Object.keys(sdkFlows)) {
+    const controls = sdkControls(flow);
+    controls.consent.checked = false; controls.error.textContent = ""; controls.status.textContent = "";
+  }
 }
 function syncConnection() {
   $("#service-notice").hidden = state.providerReady;
@@ -44,21 +62,24 @@ function syncConnection() {
 }
 async function openWorkspace() {
   const data = await api("/api/status");
-  state.sdkRun = null; state.sdkStarting = false;
+  state.sdkRun = null; state.sdkRunFlow = null; state.sdkStarting = false;
   state.csrf = data.csrf; state.providerReady = data.provider_ready; state.providerMessage = data.provider_message;
   $("#access-panel").hidden = true; $("#workspace").hidden = false; $("#header-actions").hidden = false;
   syncConnection();
   if (data.latest_job) await pollJob(data.latest_job);
-  if (data.latest_sdk) {
-    const previous = await api(`/api/sdk/runs/${data.latest_sdk}`);
+  const previousRuns = data.latest_sdk_by_flow ? Object.values(data.latest_sdk_by_flow) : data.latest_sdk ? [data.latest_sdk] : [];
+  for (const id of previousRuns) {
+    const previous = await api(`/api/sdk/runs/${id}`);
     renderResult(previous);
     if (previous.status === "running") {
       state.sdkRun = previous.id;
-      $("#sdk-status").textContent = "Lượt camera trước vẫn đang mở. Kết thúc lượt này để xem kết quả và bắt đầu lại.";
+      state.sdkRunFlow = resultFlow(previous);
+      sdkControls(state.sdkRunFlow).status.textContent = "Lượt camera trước vẫn đang mở. Kết thúc lượt này để xem kết quả và bắt đầu lại.";
     }
     syncSdkControls();
   }
-  selectFlow(new URLSearchParams(location.search).get("tab") === "oval" ? "sdk" : "images");
+  const tab = new URLSearchParams(location.search).get("tab");
+  selectFlow(tab === "full" ? "full" : tab === "oval" ? "sdk" : "images");
 }
 window.addEventListener("pageshow", event => {
   if (event.persisted) openWorkspace().catch(showAccess);
@@ -156,62 +177,72 @@ function setBusy(value) {
 
 function selectFlow(flow) {
   state.flow = flow;
-  $("#sdk-panel").hidden = flow !== "sdk";
+  for (const kind of Object.keys(sdkFlows)) $(`#${kind}-panel`).hidden = flow !== kind;
   $("#image-input-panel").hidden = flow !== "images";
-  $("#result-panel").hidden = flow !== "images" || !state.results.images;
-  ovalPanel.hidden = flow !== "sdk" || !state.results.sdk;
-  for (const kind of ["sdk", "images"]) {
+  for (const [kind, panel] of Object.entries(resultPanels)) panel.hidden = flow !== kind || !state.results[kind];
+  for (const kind of Object.keys(resultPanels)) {
     const button = $(`#flow-${kind}`);
     button.classList.toggle("selected", flow === kind);
     button.setAttribute("aria-pressed", String(flow === kind));
   }
+  const tab = sdkFlows[flow]?.tab;
+  history.replaceState(null, "", location.pathname + (tab ? `?tab=${tab}` : ""));
 }
-for (const flow of ["sdk", "images"]) $("#flow-" + flow).addEventListener("click", () => {
+for (const flow of Object.keys(resultPanels)) $("#flow-" + flow).addEventListener("click", () => {
   if (state.sdkStarting) return;
   selectFlow(flow);
 });
 function syncSdkControls() {
   const occupied = state.busy || Boolean(state.sdkRun) || state.sdkStarting;
-  $("#flow-sdk").disabled = state.sdkStarting; $("#flow-images").disabled = state.sdkStarting;
+  for (const flow of Object.keys(resultPanels)) $(`#flow-${flow}`).disabled = state.sdkStarting;
   $("#verify").disabled = occupied || !state.providerReady;
-  $("#start-sdk").disabled = occupied || !state.providerReady;
-  $("#start-sdk").hidden = Boolean(state.sdkRun);
-  $("#stop-sdk").hidden = !state.sdkRun;
-  $("#sdk-consent").disabled = occupied;
+  for (const flow of Object.keys(sdkFlows)) {
+    const controls = sdkControls(flow);
+    const active = Boolean(state.sdkRun) && state.sdkRunFlow === flow;
+    controls.start.disabled = occupied || !state.providerReady;
+    controls.start.hidden = active;
+    controls.stop.hidden = !active;
+    controls.consent.disabled = occupied;
+  }
 }
 async function finishSdk() {
   const id = state.sdkRun;
   if (!id) return;
-  $("#stop-sdk").disabled = true;
+  const controls = sdkControls(state.sdkRunFlow);
+  controls.stop.disabled = true;
   try {
     let result = await api(`/api/sdk/runs/${id}/finish`, jsonOptions("POST", {}));
     while (result.status === "running" && state.sdkRun === id) {
       renderResult(result);
-      $("#sdk-status").textContent = "Đã tắt camera. Đang chờ các request đã gửi đến VNPT trả kết quả…";
+      controls.status.textContent = "Đã tắt camera. Đang chờ các request đã gửi đến VNPT trả kết quả…";
       await new Promise(resolve => setTimeout(resolve, 1200));
       result = await api(`/api/sdk/runs/${id}`);
     }
-    state.sdkRun = null; renderResult(result);
-    $("#sdk-status").textContent = "Đã tắt camera. Kết quả bên dưới là các phản hồi thực tế backend nhận từ VNPT.";
-  } catch (error) { $("#sdk-error").textContent = error.message; }
-  finally { $("#stop-sdk").disabled = false; syncSdkControls(); }
+    state.sdkRun = null; state.sdkRunFlow = null; renderResult(result);
+    controls.status.textContent = "Đã tắt camera. Kết quả bên dưới là các phản hồi thực tế backend nhận từ VNPT.";
+  } catch (error) { controls.error.textContent = error.message; }
+  finally { controls.stop.disabled = false; syncSdkControls(); }
 }
-$("#start-sdk").addEventListener("click", async () => {
-  $("#sdk-error").textContent = "";
-  if (!$("#sdk-consent").checked) {
-    $("#sdk-error").textContent = "Cần đồng ý gửi dữ liệu camera đến VNPT trước khi kiểm tra.";
+async function startSdk(flow) {
+  const controls = sdkControls(flow);
+  controls.error.textContent = "";
+  if (!controls.consent.checked) {
+    controls.error.textContent = flow === "full" ? "Cần đồng ý gửi giấy tờ và dữ liệu camera đến VNPT trước khi kiểm tra." : "Cần đồng ý gửi dữ liệu camera đến VNPT trước khi kiểm tra.";
     return;
   }
   state.sdkStarting = true; syncSdkControls();
   try {
-    const run = await api("/api/sdk/runs", jsonOptions("POST", {consent: true, flow: "oval"}));
-    state.sdkRun = run.id;
-    $("#sdk-status").textContent = "Đang mở màn hình camera của VNPT Web SDK…";
-    location.assign(`/sdk#run=${run.id}`);
-  } catch (error) { $("#sdk-error").textContent = error.message; }
+    const run = await api("/api/sdk/runs", jsonOptions("POST", {consent: true, flow: sdkFlows[flow].requestFlow}));
+    state.sdkRun = run.id; state.sdkRunFlow = flow;
+    controls.status.textContent = "Đang mở màn hình camera của VNPT Web SDK…";
+    location.assign(`/sdk#run=${run.id}&tab=${sdkFlows[flow].tab}`);
+  } catch (error) { controls.error.textContent = error.message; }
   finally { state.sdkStarting = false; syncSdkControls(); }
-});
-$("#stop-sdk").addEventListener("click", finishSdk);
+}
+for (const flow of Object.keys(sdkFlows)) {
+  sdkControls(flow).start.addEventListener("click", () => startSdk(flow));
+  sdkControls(flow).stop.addEventListener("click", finishSdk);
+}
 $("#verify").addEventListener("click", async () => {
   $("#form-error").textContent = "";
   if (!state.providerReady) { $("#form-error").textContent = state.providerMessage; return; }
@@ -230,13 +261,12 @@ $("#verify").addEventListener("click", async () => {
 });
 function renderResult(result) {
   state.result = result;
-  const isOval = result.mode === "oval" || result.mode === "sdk";
-  const flow = isOval ? "sdk" : "images";
+  const flow = resultFlow(result);
   state.results[flow] = result;
-  const panel = isOval ? ovalPanel : $("#result-panel");
-  const get = id => panel.querySelector(`#${isOval ? "oval-" : ""}${id}`);
+  const panel = resultPanels[flow];
+  const get = id => panel.querySelector(`#${sdkFlows[flow]?.prefix || ""}${id}`);
   panel.hidden = state.flow !== flow;
-  panel.querySelector("h2").textContent = isOval ? "Kết quả Liveness Oval" : result.mode === "ocr" ? "Kết quả OCR" : "Kết quả kiểm tra ảnh";
+  panel.querySelector("h2").textContent = sdkFlows[flow]?.title || (result.mode === "ocr" ? "Kết quả OCR" : "Kết quả kiểm tra ảnh");
   get("progress-text").textContent = result.progress;
   get("calls").textContent = `${result.calls} request đã gửi đến VNPT`;
   panel.querySelector(".spinner").hidden = result.status !== "running";
@@ -260,7 +290,7 @@ function renderResult(result) {
   get("request-log").hidden = !requests.length;
   get("request-rows").replaceChildren(...requests.map(record => {
     const row = document.createElement("tr");
-    const name = record.endpoint.endsWith("addFile") ? "Upload tệp" : record.endpoint.endsWith("liveness-3d") ? "Liveness Oval" : record.endpoint.endsWith("/mask") ? "Kiểm tra che mặt" : record.endpoint;
+    const name = record.endpoint.endsWith("addFile") ? "Upload tệp" : record.endpoint.endsWith("liveness-3d") ? "Liveness Oval" : record.endpoint.endsWith("/mask") ? "Kiểm tra che mặt" : record.endpoint.endsWith("/compare") ? "So khớp với CCCD" : record.endpoint.includes("/ocr/") ? "Đọc giấy tờ (OCR)" : record.endpoint.includes("/card/") ? "Kiểm tra giấy tờ" : record.endpoint;
     const values = [name, record.http_status ?? "—", record.gateway_status ?? "—", record.error_kind || record.code || record.status || "Đang gửi", record.elapsed_ms == null ? "—" : `${record.elapsed_ms} ms`];
     for (const value of values) { const cell = document.createElement("td"); cell.textContent = String(value); row.append(cell); }
     row.title = record.endpoint; return row;
@@ -278,8 +308,8 @@ async function pollJob(id, failures = 0) {
     setBusy(false); $("#result-error").textContent = `${error.message} Nếu đã bắt đầu kiểm tra, đừng gửi lại ngay vì có thể phát sinh thêm request.`; $("#result-error").hidden = false; $("#result-panel .spinner").hidden = true;
   }
 }
-for (const flow of ["images", "sdk"]) {
-  $(flow === "sdk" ? "#oval-download-result" : "#download-result").addEventListener("click", () => {
+for (const flow of Object.keys(resultPanels)) {
+  resultPanels[flow].querySelector(`#${sdkFlows[flow]?.prefix || ""}download-result`).addEventListener("click", () => {
     const result = state.results[flow];
     if (!result) return;
     const url = URL.createObjectURL(new Blob([JSON.stringify(result, null, 2)], {type: "application/json"}));
@@ -287,5 +317,4 @@ for (const flow of ["images", "sdk"]) {
   });
 }
 syncMode();
-selectFlow("images");
 bootstrap();

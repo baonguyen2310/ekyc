@@ -1,6 +1,9 @@
 "use strict";
 (() => {
-  const runId = new URLSearchParams(location.hash.slice(1)).get("run");
+  const fragment = new URLSearchParams(location.hash.slice(1));
+  const runId = fragment.get("run");
+  let fullFlow = fragment.get("tab") === "full";
+  const resultUrl = () => fullFlow ? "/?tab=full" : "/?tab=oval";
   const nativeFetch = window.fetch.bind(window);
   const proxyPrefix = `/api/sdk/runs/${runId}/proxy/`;
   let csrf = "", interrupted = false, closed = false, closePromise = null, pollTimer = null, clientError = null;
@@ -43,9 +46,9 @@
     return closePromise;
   }
   async function finish() {
-    if (!csrf) { location.replace("/?tab=oval"); return; }
-    try { await closeRun(); location.replace("/?tab=oval"); }
-    catch { location.replace("/?tab=oval"); }
+    if (!csrf) { location.replace(resultUrl()); return; }
+    try { await closeRun(); location.replace(resultUrl()); }
+    catch { location.replace(resultUrl()); }
   }
   function interrupt(message, kind = "sdk_runtime") {
     if (interrupted) return;
@@ -59,7 +62,7 @@
     document.body.append(failure);
     failure.showModal();
     if (csrf) closeRun().then(result => {
-      document.querySelector("#sdk-failure-summary").textContent = `Đã kết thúc lượt: ${result.calls} request gửi đến VNPT. Các bước đã nhận được giữ trong phần Kết quả Liveness Oval.`;
+      document.querySelector("#sdk-failure-summary").textContent = `Đã kết thúc lượt: ${result.calls} request gửi đến VNPT. Các bước đã nhận được giữ trong phần ${fullFlow ? "Kết quả luồng đầy đủ" : "Kết quả Liveness Oval"}.`;
     }).catch(error => { document.querySelector("#sdk-failure-summary").textContent = error.message; });
     else document.querySelector("#sdk-failure-summary").textContent = "Quay lại Lab để mở phiên thử mới.";
   }
@@ -110,6 +113,9 @@
   async function start() {
     if (!/^[a-f0-9]{32}$/.test(runId || "")) throw new Error("Thiếu mã lượt thử hợp lệ. Vui lòng quay lại Lab.");
     const config = await request(`/api/sdk/runs/${runId}/config`);
+    fullFlow = config.SDK_FLOW === "DOCUMENT_TO_FACE";
+    document.querySelector("#sdk-flow-label").textContent = fullFlow ? "Luồng đầy đủ · CCCD & Oval & So khớp" : "Camera · Liveness Oval";
+    progress.textContent = fullFlow ? "Chụp giấy tờ → OCR → Oval → So khớp khuôn mặt" : "Sẵn sàng quét khuôn mặt · Không cần OCR giấy tờ";
     csrf = config.HEADERS_REQUEST["X-CSRF-Token"]; button.disabled = false;
     if (!window.SDK?.launch || !window.FaceVNPTBrowserSDK) throw new Error("Chưa tải được thư viện VNPT Web SDK.");
     window.SDK.launch({...config, CALL_BACK_END_FLOW: () => { if (!interrupted) finish(); }});

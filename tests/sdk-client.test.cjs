@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const source = fs.readFileSync('app/static/sdk.js', 'utf8');
 const id = 'a'.repeat(32);
 const tick = () => new Promise(resolve => setImmediate(resolve));
-async function lab(failureType) {
+async function lab(failureType, sdkFlow = 'FACE') {
   const nodes = new Map(), handlers = {}, classes = new Set(), calls = [], navigations = [];
   let config, stopped = 0;
   const node = selector => {
@@ -15,7 +15,7 @@ async function lab(failureType) {
   const document = {querySelector: node, querySelectorAll: () => [{srcObject: {getTracks: () => [{stop() { stopped++; }}]}}], body: {classList: {add: value => classes.add(value)}, append() {}}, fullscreenElement: null};
   const originalFetch = async (path, options) => {
     calls.push(String(path));
-    if (String(path).endsWith('/config')) return Response.json({HEADERS_REQUEST: {'X-CSRF-Token': 'local-csrf'}, SDK_FLOW: 'FACE'});
+    if (String(path).endsWith('/config')) return Response.json({HEADERS_REQUEST: {'X-CSRF-Token': 'local-csrf'}, SDK_FLOW: sdkFlow});
     if (String(path).includes('/proxy/')) {
       if (failureType === 'network') throw new TypeError('Network failed');
       if (failureType === 'html') return new Response('<html>bad gateway</html>', {status: 502});
@@ -29,7 +29,7 @@ async function lab(failureType) {
   const context = {window, document, location: {hash: `#run=${id}`, origin: 'https://testserver', replace: url => navigations.push(url)}, URL, URLSearchParams, Response, AbortController, setTimeout: (...args) => {const timer = setTimeout(...args); timer.unref(); return timer;}, clearTimeout};
   vm.runInNewContext(source, context);
   for (let i = 0; i < 20 && !config; i++) await tick();
-  assert.equal(config.SDK_FLOW, 'FACE');
+  assert.equal(config.SDK_FLOW, sdkFlow);
   return {config, nodes, node, classes, calls, window, handlers, navigations, stopped: () => stopped};
 }
 for (const kind of ['api', 'html', 'network']) test(`SDK exits loading and blocks further uploads after ${kind} error`, async () => {
@@ -64,4 +64,20 @@ test('successful SDK callback returns to the independent Oval results', async ()
   for (let i = 0; i < 20 && !app.navigations.length; i++) await tick();
   assert.equal(app.navigations[0], '/?tab=oval');
   assert.equal(app.classes.has('sdk-interrupted'), false);
+});
+test('full SDK callback returns to the full results tab', async () => {
+  const app = await lab(undefined, 'DOCUMENT_TO_FACE');
+  assert.match(app.node('#sdk-flow-label').textContent, /Luồng đầy đủ/);
+  app.config.CALL_BACK_END_FLOW();
+  for (let i = 0; i < 20 && !app.navigations.length; i++) await tick();
+  assert.equal(app.navigations[0], '/?tab=full');
+});
+test('full SDK failure keeps its completed steps in the full results tab', async () => {
+  const app = await lab('api', 'DOCUMENT_TO_FACE');
+  await app.window.fetch(`https://testserver/api/sdk/runs/${id}/proxy/ai/v1/web/face/compare`, {method: 'POST'});
+  for (let i = 0; i < 8; i++) await tick();
+  assert.equal(app.node('#sdk-failure').open, true);
+  assert.match(app.node('#sdk-failure-summary').textContent, /Kết quả luồng đầy đủ/);
+  await app.node('#sdk-view-results').click();
+  assert.equal(app.navigations[0], '/?tab=full');
 });

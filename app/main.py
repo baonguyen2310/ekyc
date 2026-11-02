@@ -272,6 +272,7 @@ def create_app(*, settings=None, client_factory=VnptClient, sdk_gateway_factory=
             "session_expires_at": int(session.expires),
             "latest_job": own[-1].id if own else None,
             "latest_sdk": latest_sdk.id if latest_sdk else None,
+            "latest_sdk_by_flow": {run.flow: run.id for run in own_sdk},
             "sdk_version": "3.2.1.0",
         }
 
