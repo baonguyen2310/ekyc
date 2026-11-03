@@ -1,6 +1,6 @@
 # eKYC Lab
 
-Service thử nghiệm VNPT eKYC độc lập, dùng FastAPI + giao diện HTML/JS + nginx; triển khai trên Civo tại **https://tools.opskoo.com**. Không dùng API, tài khoản hoặc cơ sở dữ liệu Opskoo.
+Service thử nghiệm eKYC độc lập, dùng FastAPI + giao diện HTML/JS + nginx; triển khai trên Civo tại **https://tools.opskoo.com**. VNPT phục vụ OCR/Oval; tab NFC dùng Signicat ReadID Ready qua Assure API. Không dùng API, tài khoản hoặc cơ sở dữ liệu Opskoo.
 
 ## Luồng đang có
 
@@ -14,7 +14,7 @@ Service thử nghiệm VNPT eKYC độc lập, dùng FastAPI + giao diện HTML/
 - **Luồng đầy đủ:** tab riêng mở `SDK_FLOW=DOCUMENT_TO_FACE`: chụp hai mặt giấy tờ, OCR và kiểm tra giấy tờ, quét Oval, kiểm tra che mặt và so khớp ảnh khuôn mặt từ chính lượt quét với ảnh trên giấy tờ. Không cần upload ảnh chân dung riêng. Giới hạn 14 request/lượt; mỗi bước có kết quả và nhật ký riêng. Các bước chưa chạy không được đánh dấu đạt.
 - Mỗi tab có kết quả độc lập và nút tải JSON. Backend giữ kết quả SDK mới nhất theo từng luồng trong cùng phiên; quay lại Lab sẽ chọn đúng tab đã chạy, kể cả khi luồng lỗi hoặc bị kết thúc sớm.
 - SDK mở ở màn hình camera riêng cùng origin để có đủ diện tích và tách CSS; kết thúc sẽ trở về kết quả trong Lab. Các API SDK đi qua gateway có session/CSRF, endpoint cố định và chỉ nhận mã tệp được upload trong chính lượt đó. Cấu hình SDK không chứa khóa VNPT; backend thêm khóa từ `.env` khi gọi nhà cung cấp. Kết quả lấy từ phản hồi upstream, không nhận trạng thái đạt do callback phía client tự khai báo.
-- Không đọc NFC, không xác thực C06/VNeID, không ghi vào kho Face ID. Không bật ghi/lưu video MP4; SDK vẫn tạo dữ liệu quét cần cho liveness oval.
+- Các luồng VNPT không đọc NFC, không xác thực C06/VNeID, không ghi vào kho Face ID. Không bật ghi/lưu video MP4; SDK vẫn tạo dữ liệu quét cần cho liveness oval. NFC là tab sandbox riêng, cần cấu hình tài khoản Signicat; xem bên dưới.
 - Khi API lỗi, SDK được dừng và thông báo bằng dialog nằm trên lớp loading của vendor. Các request sau bị chặn, không tự retry. Kết quả có nhật ký từng request, kể cả lần thất bại: HTTP từ VNPT, HTTP của Lab, loại lỗi và thời gian. Gateway có hạn tổng 25 giây, ngắn hơn hạn nginx 30 giây; phân biệt timeout, mất kết nối, JSON sai và thiếu mã upload. Không lưu body lỗi upstream hoặc ảnh/quét vào log.
 
 Các endpoint và payload được đối chiếu với [tài liệu API](https://ekyc.vnpt.vn/admin-dashboard/vi/documents/api), [hướng dẫn Web SDK](https://ekyc.vnpt.vn/admin-dashboard/vi/documents/sdk-web) và bộ `web-sdk-version-3.2.1.0.zip` tải từ [VNPT](https://ekyc.vnpt.vn/admin-dashboard/vi/documents/download) ngày 02/11/2026. Bộ 3.2.1.0 dùng `SDK.launch` và `DOUBLE_LIVENESS`, khác ví dụ `ekycsdk.init`/`ADVANCE_LIVENESS_FACE` của bản 2.1.0 trong tài liệu web. Vendor assets được giữ nguyên tại `app/static/vendor/vnpt-3.2.1.0`; trang mẫu có token demo không được đưa vào service. `provenance.json` lưu nguồn và SHA-256 archive. Chưa kiểm thử sinh trắc học bằng giấy tờ và khuôn mặt thật trên luồng SDK.
@@ -41,6 +41,7 @@ PUBLIC_ORIGIN=http://127.0.0.1:8103 COOKIE_SECURE=false \
 .venv/bin/ruff check app tests
 node --check app/static/app.js
 node --test tests/sdk-client.test.cjs
+node --test tests/nfc-client.test.cjs
 ```
 
 ## Triển khai trên Civo
@@ -80,3 +81,34 @@ sudo docker compose down
 ```
 
 Gỡ riêng hai block `tools.opskoo.com` trong Caddy hoặc phục hồi bản cấu hình sao lưu, validate và reload. Service không tạo database hoặc migration trong Opskoo.
+
+## NFC · ReadID Ready (03/11/2026)
+
+Tab `/?tab=nfc` tích hợp app **ReadID Ready của Signicat**, không dùng ReadID Me. Luồng được viết theo [Capture/Assure](https://developer.signicat.com/docs/id-document-and-biometric-verification/services/capture/) và [API reference](https://developer.signicat.com/apis/id-document-and-biometric-verification/):
+
+1. Backend đổi Client ID/Secret lấy OAuth token tại host cố định `api.signicat.com`. Chỉ chấp nhận token nhận trực tiếp qua HTTPS có claim `sandbox=true`; từ chối production trước khi tạo dossier. Không dùng khóa mẫu trong tài liệu nhà cung cấp.
+2. Tạo dossier với mã tham chiếu ngẫu nhiên của Lab, sau đó gọi Capture với `provider=readid`, `processType=ready`, `sdk=native` và domain sandbox đã cấu hình.
+3. Mở URL Capture được trả về. Chính Signicat hiển thị QR/hướng dẫn chuyển sang ReadID Ready; Lab không tự đoán deep link hay dựng QR giả. URL phải là HTTPS, đúng domain sandbox, đúng đường dẫn Capture và không chứa userinfo/control characters.
+4. Người thử làm theo hướng dẫn trong app. Khi quay về Lab, bấm **Lấy kết quả**. Backend chỉ đọc các process `readid/ready` trong dossier đã tạo cho chính phiên Lab. Không nhận `processId`, `dossierId`, trạng thái hoặc kết quả từ client/redirect để quyết định đạt.
+5. Hiển thị riêng trạng thái nhà cung cấp, `chipVerification`, `chipCloneDetection`, các trường định danh, JSON đã lọc và nhật ký request. Thiếu/không rõ kết quả chip là **chưa có kết quả**, không tự đánh dấu đạt. Không có liveness/face match/C06/VNeID trong tab này.
+
+**Chưa kiểm chứng end-to-end với Signicat hoặc CCCD Việt Nam.** Chưa có tài khoản/keys được người dùng cung cấp cho bản tích hợp này. Bộ kiểm tra sử dụng `MockTransport` và dữ liệu giả; không phát sinh request VNPT/Signicat thật. Các bước Ready chi tiết trong [hướng dẫn của Signicat](https://developer.signicat.com/docs/id-document-and-biometric-verification/provider-specific-integrations/signicat-readid/integration-guide-readid/) vẫn ghi là chưa được tài liệu hóa đầy đủ; API reference có `ready` và Capture, nhưng quyền tài khoản/cấu hình cần được nhà cung cấp xác nhận khi thử thật.
+
+### Cấu hình backend
+
+Trong [Signicat Dashboard](https://dashboard.signicat.com/), tạo sandbox account, domain sandbox, OAuth client; cấp **Assure API** và quyền **ReadID Ready**. Theo [quick start chính thức](https://developer.signicat.com/docs/id-document-and-biometric-verification/quick-start-guides/quick-start-guide-assure-api/), một số provider có thể trả dữ liệu mô phỏng trong sandbox. Sandbox mặc định nên dùng dữ liệu thử; nếu dùng giấy tờ thật, cần làm rõ sandbox riêng và xử lý dữ liệu với Signicat trước.
+
+Điền vào `/srv/ekyc-lab/.env` (không nhập trên client, không commit):
+
+```dotenv
+SIGNICAT_NFC_ENABLED=true
+SIGNICAT_CLIENT_ID=<sandbox-client-id>
+SIGNICAT_CLIENT_SECRET=<sandbox-client-secret>
+SIGNICAT_CAPTURE_DOMAIN=<ten-tai-khoan>.sandbox.signicat.com
+```
+
+Recreate API sau khi cập nhật. Thiếu cấu hình thì tab vẫn mở được nhưng nút tạo phiên bị vô hiệu hóa và API trả 503, không tạo kết quả giả. Không kích hoạt production hoặc giả định gói miễn phí bao gồm NFC. Bản hiện tại chỉ nhận domain `*.sandbox.signicat.com`; custom domain cần điều chỉnh có chủ đích sau khi được cấp và xác minh.
+
+Không gọi nhà cung cấp khi khởi động, GET trạng thái hoặc mở tab. Tạo phiên và lấy kết quả là thao tác thủ công, không tự retry, không auto-poll. Mỗi phiên Lab có tối đa một lượt NFC chưa kết thúc, tối đa 20 lượt mới/giờ toàn Lab; tối đa 15 lần cập nhật/lượt, cách nhau ít nhất 5 giây. Request có deadline tổng 25 giây; thất bại/timeout không tự tạo lại dossier.
+
+Kết quả/liên kết riêng chỉ nằm trong RAM và trong phiên Lab tạo nó, tối đa 20 phút. Thoát Lab xóa bản tại VPS; không xóa hoặc hủy dossier tại Signicat. Bản JSON hiển thị/tải về chỉ có các trường được phép, không có token/ảnh/chip blob. Số request hiển thị chỉ tính backend Lab, không gồm request app ReadID gửi và không khẳng định số lượt tính phí. Camera/NFC chạy trong app, không phải Web NFC trên trình duyệt.

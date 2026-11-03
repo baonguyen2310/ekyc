@@ -38,6 +38,7 @@ async function api(path, options = {}) {
 function jsonOptions(method, data) { return {method, headers: {"Content-Type": "application/json"}, body: JSON.stringify(data)}; }
 function toast(message) { $("#toast").textContent = message; $("#toast").hidden = false; clearTimeout(state.timer); state.timer = setTimeout(() => $("#toast").hidden = true, 3500); }
 function showAccess() {
+  window.nfcLab?.clear();
   state.sdkRun = null; state.sdkRunFlow = null; state.sdkStarting = false;
   $("#access-panel").hidden = false; $("#workspace").hidden = true; $("#header-actions").hidden = true;
   state.csrf = ""; state.providerReady = false; state.result = null; clearTimeout(state.poll); setBusy(false);
@@ -55,7 +56,7 @@ function showAccess() {
   }
 }
 function syncConnection() {
-  $("#service-notice").hidden = state.providerReady;
+  $("#service-notice").hidden = state.providerReady || state.flow === "nfc";
   $("#service-message").textContent = state.providerMessage;
   $("#connection-dot").classList.toggle("connected", state.providerReady);
   setBusy(state.busy);
@@ -66,6 +67,7 @@ async function openWorkspace() {
   state.csrf = data.csrf; state.providerReady = data.provider_ready; state.providerMessage = data.provider_message;
   $("#access-panel").hidden = true; $("#workspace").hidden = false; $("#header-actions").hidden = false;
   syncConnection();
+  await window.nfcLab?.load();
   if (data.latest_job) await pollJob(data.latest_job);
   const previousRuns = data.latest_sdk_by_flow ? Object.values(data.latest_sdk_by_flow) : data.latest_sdk ? [data.latest_sdk] : [];
   for (const id of previousRuns) {
@@ -79,7 +81,7 @@ async function openWorkspace() {
     syncSdkControls();
   }
   const tab = new URLSearchParams(location.search).get("tab");
-  selectFlow(tab === "full" ? "full" : tab === "oval" ? "sdk" : "images");
+  selectFlow(tab === "nfc" ? "nfc" : tab === "full" ? "full" : tab === "oval" ? "sdk" : "images");
 }
 window.addEventListener("pageshow", event => {
   if (event.persisted) openWorkspace().catch(showAccess);
@@ -185,13 +187,16 @@ function selectFlow(flow) {
     button.classList.toggle("selected", flow === kind);
     button.setAttribute("aria-pressed", String(flow === kind));
   }
-  const tab = sdkFlows[flow]?.tab;
+  const tab = flow === "nfc" ? "nfc" : sdkFlows[flow]?.tab;
+  window.nfcLab?.select(flow);
+  $("#service-notice").hidden = state.providerReady || flow === "nfc";
   history.replaceState(null, "", location.pathname + (tab ? `?tab=${tab}` : ""));
 }
 for (const flow of Object.keys(resultPanels)) $("#flow-" + flow).addEventListener("click", () => {
   if (state.sdkStarting) return;
   selectFlow(flow);
 });
+$("#flow-nfc")?.addEventListener("click", () => { if (!state.sdkStarting) selectFlow("nfc"); });
 function syncSdkControls() {
   const occupied = state.busy || Boolean(state.sdkRun) || state.sdkStarting;
   for (const flow of Object.keys(resultPanels)) $(`#flow-${flow}`).disabled = state.sdkStarting;

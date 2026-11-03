@@ -7,6 +7,7 @@
   <title>eKYC Lab · Thử nghiệm xác minh danh tính</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/nfc.js" defer></script>
   <script src="/static/app.js" defer></script>
 </head>
 <body>
@@ -41,15 +42,33 @@
     </section>
 
     <div id="workspace" hidden>
-      <section class="page-heading"><div><p class="eyebrow">VNPT eKYC · Web SDK & API</p><h1>Đọc giấy tờ và kiểm tra người thật.</h1><p class="muted">Chạy riêng từng phần hoặc chọn luồng đầy đủ để đối chiếu người quét với CCCD.</p></div><span class="private-label"><svg><use href="#i-shield"/></svg>Phiên thử riêng</span></section>
+      <section class="page-heading"><div><p class="eyebrow">VNPT eKYC & Signicat ReadID</p><h1>Đọc giấy tờ và kiểm tra người thật.</h1><p class="muted">Chọn OCR, Oval, luồng đầy đủ hoặc thử đọc chip NFC bằng app của nhà cung cấp.</p></div><span class="private-label"><svg><use href="#i-shield"/></svg>Phiên thử riêng</span></section>
       <div class="flow-switch" role="group" aria-label="Cách xác minh">
         <button class="flow-button selected" id="flow-images" aria-pressed="true"><svg><use href="#i-id"/></svg>Đọc giấy tờ (OCR)</button>
         <button class="flow-button" id="flow-sdk" aria-pressed="false"><svg><use href="#i-face"/></svg>Liveness Oval</button>
         <button class="flow-button" id="flow-full" aria-pressed="false"><svg><use href="#i-shield"/></svg>Luồng đầy đủ</button>
+        <button class="flow-button" id="flow-nfc" aria-pressed="false"><svg><use href="#i-id"/></svg>NFC · ReadID Ready</button>
       </div>
       <div class="workspace-grid">
         <div class="main-column">
           <section class="panel setup-notice" id="service-notice" hidden><div><strong>Kết nối VNPT chưa sẵn sàng</strong><p id="service-message"></p></div></section>
+          <section class="panel nfc-panel" id="nfc-panel" hidden>
+            <div class="section-heading"><div><span class="step">01</span><h2>Đọc chip NFC qua app</h2></div><span class="sdk-version">Signicat · Sandbox</span></div>
+            <p class="muted">Lab tạo phiên riêng. Trang của Signicat hiển thị mã QR trên máy tính hoặc hướng dẫn mở ReadID Ready trên điện thoại. Kết quả được backend Lab lấy trực tiếp từ Signicat.</p>
+            <div class="nfc-notice"><strong id="nfc-connection">Đang kiểm tra cấu hình…</strong><p>Đây là sandbox: dùng giấy tờ thử. Signicat khuyến nghị sandbox riêng nếu thử giấy tờ thật. Chưa kiểm chứng CCCD Việt Nam trên luồng này.</p></div>
+            <ol class="nfc-instructions"><li>Cài ReadID Ready trên điện thoại có NFC: <a href="https://apps.apple.com/us/app/readid-ready/id1486164875" target="_blank" rel="noreferrer noopener">iPhone</a> · <a href="https://play.google.com/store/apps/details?id=com.readid.ready" target="_blank" rel="noreferrer noopener">Android</a>.</li><li>Tạo phiên rồi mở trang Signicat để xem mã QR hoặc mở app.</li><li>Làm theo hướng dẫn trong app, quay về Lab và bấm lấy kết quả.</li></ol>
+            <label class="checkbox-row"><input type="checkbox" id="nfc-consent">Tôi đồng ý chuyển sang Signicat/ReadID để thử đọc chip. Dữ liệu quét được xử lý theo chính sách của nhà cung cấp.</label>
+            <div class="nfc-actions"><button class="button primary" id="nfc-start" disabled>Tạo phiên NFC</button><a class="button primary" id="nfc-open" target="_blank" rel="noreferrer noopener" hidden>Mở ReadID / mã QR<svg><use href="#i-arrow"/></svg></a><button class="button secondary" id="nfc-refresh" hidden>Lấy kết quả</button></div>
+            <p class="muted" id="nfc-progress" role="status" aria-live="polite"></p><p class="error-text" id="nfc-error" role="alert"></p>
+            <p class="result-note">Không gọi VNPT. Không tự tạo lại phiên hoặc tự lấy kết quả định kỳ. Bản thử này chỉ nhận tài khoản sandbox; chưa có đối chiếu C06/VNeID hoặc so khớp khuôn mặt.</p>
+          </section>
+          <section class="panel result-panel" id="nfc-result" hidden>
+            <div class="section-heading"><div><span class="step">02</span><h2>Kết quả NFC</h2></div><span class="badge" id="nfc-state"></span></div>
+            <p class="result-note">Phản hồi từ sandbox Signicat có thể là dữ liệu thử. Trạng thái chấp nhận của nhà cung cấp không có nghĩa Lab đã xác minh danh tính thật.</p>
+            <div class="check-results" id="nfc-checks"></div><dl class="extracted-fields" id="nfc-fields" hidden></dl>
+            <div class="request-log"><h3>Request từ Lab tới Signicat</h3><p class="result-note" id="nfc-calls"></p><div class="request-table-wrap"><table><thead><tr><th>Bước</th><th>HTTP</th><th>Thời gian</th></tr></thead><tbody id="nfc-log"></tbody></table></div></div>
+            <details><summary>Xem dữ liệu kết quả</summary><pre id="nfc-json"></pre></details><div class="result-footer"><span>Kết quả giữ tạm tối đa 20 phút tại Lab. Dữ liệu phía Signicat theo chính sách riêng.</span><button class="button quiet small" id="nfc-download">Tải JSON</button></div>
+          </section>
           <section class="panel sdk-panel" id="sdk-panel" hidden>
             <div class="section-heading"><div><span class="step">01</span><h2>Liveness Oval · Kiểm tra người thật</h2></div><span class="sdk-version">VNPT Web SDK 3.2.1.0</span></div>
             <p class="muted">Chỉ cần camera: đặt khuôn mặt trong khung oval và di chuyển gần–xa theo hướng dẫn. Phần này chạy độc lập, không cần tải CCCD hoặc làm OCR trước.</p>
@@ -112,8 +131,8 @@
         </div>
 
         <aside class="aside-column">
-          <section class="panel guide-card"><span class="guide-icon"><svg><use href="#i-shield"/></svg></span><h2>Chọn phần<br>cần kiểm tra.</h2><ol><li><span>1</span><div><strong>OCR giấy tờ</strong><p>Đọc chữ từ hai mặt CCCD hoặc CMND. Tùy chọn kiểm tra ảnh nâng cao vẫn nằm trong tab này.</p></div></li><li><span>2</span><div><strong>Liveness Oval</strong><p>Chỉ kiểm tra người thật và che mặt qua camera, không đối chiếu với CCCD.</p></div></li><li><span>3</span><div><strong>Luồng đầy đủ</strong><p>Chụp giấy tờ, OCR, quét Oval và so khớp khuôn mặt với CCCD trong cùng một lượt. Mỗi bước có kết quả riêng.</p></div></li></ol></section>
-          <section class="panel small-note"><h3>Một service thử riêng</h3><p>Không gắn với tài khoản, hồ sơ hoặc dữ liệu Opskoo. Dữ liệu được xử lý tạm, không lưu thành hồ sơ tại VPS.</p><p>Camera dùng Web SDK chính thức với oval gần–xa. Chế độ ảnh vẫn dùng API liveness trên ảnh. Cả hai chưa xác thực chip hoặc đối chiếu C06/VNeID.</p><a href="https://ekyc.vnpt.vn/admin-dashboard/console/dashboard" target="_blank" rel="noopener noreferrer">Mở console VNPT<svg><use href="#i-arrow"/></svg></a></section>
+          <section class="panel guide-card"><span class="guide-icon"><svg><use href="#i-shield"/></svg></span><h2>Chọn phần<br>cần kiểm tra.</h2><ol><li><span>1</span><div><strong>OCR giấy tờ</strong><p>Đọc chữ từ hai mặt CCCD hoặc CMND. Tùy chọn kiểm tra ảnh nâng cao vẫn nằm trong tab này.</p></div></li><li><span>2</span><div><strong>Liveness Oval</strong><p>Chỉ kiểm tra người thật và che mặt qua camera, không đối chiếu với CCCD.</p></div></li><li><span>3</span><div><strong>Luồng đầy đủ</strong><p>Chụp giấy tờ, OCR, quét Oval và so khớp khuôn mặt với CCCD trong cùng một lượt. Mỗi bước có kết quả riêng.</p></div></li><li><span>4</span><div><strong>NFC · ReadID Ready</strong><p>Chuyển sang app của Signicat để đọc chip. Kết quả sandbox được backend Lab lấy riêng.</p></div></li></ol></section>
+          <section class="panel small-note"><h3>Một service thử riêng</h3><p>Không gắn với tài khoản, hồ sơ hoặc dữ liệu Opskoo. Dữ liệu được xử lý tạm, không lưu thành hồ sơ tại VPS.</p><p>OCR/Oval dùng VNPT. NFC là luồng sandbox riêng qua app ReadID Ready của Signicat; không dùng khóa hoặc kết quả VNPT. Chưa có đối chiếu C06/VNeID.</p><a href="https://ekyc.vnpt.vn/admin-dashboard/console/dashboard" target="_blank" rel="noopener noreferrer">Mở console VNPT<svg><use href="#i-arrow"/></svg></a><p><a href="https://dashboard.signicat.com/" target="_blank" rel="noopener noreferrer">Mở dashboard Signicat<svg><use href="#i-arrow"/></svg></a></p></section>
         </aside>
       </div>
     </div>

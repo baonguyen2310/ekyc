@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr
 
+from .nfc import ReadIdClient, nfc_router
 from .provider import (
     Credentials,
     ProviderError,
@@ -76,7 +77,13 @@ class LoginBody(BaseModel):
     access_code: SecretStr = Field(min_length=16, max_length=256)
 
 
-def create_app(*, settings=None, client_factory=VnptClient, sdk_gateway_factory=SdkGateway):
+def create_app(
+    *,
+    settings=None,
+    client_factory=VnptClient,
+    sdk_gateway_factory=SdkGateway,
+    nfc_client_factory=ReadIdClient,
+):
     config = dict(os.environ) if settings is None else settings
     access_code = config.get("LAB_ACCESS_CODE", "")
     if len(access_code) < 32 or access_code.startswith("replace-"):
@@ -133,6 +140,7 @@ def create_app(*, settings=None, client_factory=VnptClient, sdk_gateway_factory=
             if not queue:
                 attempts.pop(key, None)
         sdk_sweep()
+        nfc_sweep()
 
     async def cleanup():
         while True:
@@ -153,6 +161,7 @@ def create_app(*, settings=None, client_factory=VnptClient, sdk_gateway_factory=
             sessions.clear()
             jobs.clear()
             sdk_runs.clear()
+            await nfc_close()
 
     app = FastAPI(
         title="eKYC Lab", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan
@@ -280,6 +289,7 @@ def create_app(*, settings=None, client_factory=VnptClient, sdk_gateway_factory=
     async def logout(request: Request):
         sid = request.cookies[COOKIE]
         sessions.pop(sid, None)
+        nfc_sweep()
         for job_id, job in list(jobs.items()):
             if job.owner == sid:
                 if job.task and not job.task.done():
@@ -479,6 +489,14 @@ def create_app(*, settings=None, client_factory=VnptClient, sdk_gateway_factory=
         gateway_factory=sdk_gateway_factory,
     )
     app.include_router(sdk_routes)
+    nfc_routes, nfc_sweep, nfc_close = nfc_router(
+        config=config,
+        cookie=COOKIE,
+        sessions=sessions,
+        origin=origin,
+        client_factory=nfc_client_factory,
+    )
+    app.include_router(nfc_routes)
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     # Keep private state inspectable in unit tests without exposing it through HTTP.
     app.state.jobs = jobs
