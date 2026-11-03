@@ -67,3 +67,17 @@ Kiểm tra trên Chrome ở bản local: mở Oval thẳng tới hướng dẫn 
 Tab thứ ba mở luồng SDK `DOCUMENT_TO_FACE` đã có trong gateway, bật OCR, kiểm tra giấy tờ, Oval, mask và compare. So khớp dùng ảnh khuôn mặt SDK thu trong lượt đó với ảnh giấy tờ cùng lượt; không lấy kết quả hoặc mã ảnh từ hai tab độc lập để ghép vào. Kết quả của cả ba tab được khôi phục riêng qua `latest_sdk_by_flow`, vẫn giữ trường `latest_sdk` tương thích. Kết thúc hoặc lỗi sẽ quay về đúng tab. Cơ chế giới hạn request, session/CSRF, giữ khóa ở backend và xử lý lỗi không thay đổi.
 
 Theo yêu cầu giữ hạn mức VNPT, thay đổi này chỉ kiểm tra tĩnh/cú pháp; không chạy kiểm thử gọi API, không mở lượt SDK, không upload hoặc gửi request chẩn đoán đến VNPT. Có bổ sung test giả lập cho cấu hình đầy đủ, khôi phục ba kết quả độc lập và điều hướng khi hoàn tất/lỗi; chưa chạy các test đó trong lần cập nhật này.
+
+## Cấu hình Signicat sandbox — 03/11/2026
+
+Sau khi người dùng đăng ký tài khoản và cho phép tạo thông tin xác thực, đã tạo domain tiêu chuẩn `opskoo-ekyc-lab.sandbox.signicat.com` và API client `ekyc-lab-nfc`. Client chỉ được cấp **Assure API**; không cấp quyền các sản phẩm khác. Secret được chuyển qua tệp tạm quyền 600, lưu ở `/srv/ekyc-lab/.env` quyền 600; không đưa vào source, chat hoặc tài liệu. API được recreate để nhận cấu hình. Cấu hình VNPT và các host Opskoo không bị thay đổi.
+
+Kiểm tra thật chỉ giới hạn kết nối quản trị:
+
+- OAuth token: HTTP 200; claim `sandbox=true`, tài khoản trùng sandbox đang cấu hình.
+- GET danh sách cấu hình và hồ sơ ban đầu: HTTP 404 `Account not found`.
+- POST tạo hồ sơ rỗng với mã tham chiếu kỹ thuật, không có thông tin cá nhân: HTTP 201.
+- Sau bước tạo hồ sơ đầu tiên, GET danh sách hồ sơ: HTTP 200. Đã kiểm tra hồ sơ không có process rồi xóa đúng hồ sơ thử, HTTP 204.
+- Không gọi Capture, không khởi tạo xác minh ReadID, không gửi giấy tờ/khuôn mặt và không gọi API VNPT.
+
+Quyền **ReadID Ready**, khả năng đọc/xác thực CCCD Việt Nam và kết quả mật mã chưa được kiểm chứng. Các unit test của bản NFC: 65 test Python và 10 test JavaScript qua, dùng dữ liệu mô phỏng. Bản code NFC là `40b8eaf`; Docker image trước bản NFC được giữ bằng tag `ekyc-lab-api:before-nfc-20261103`.
