@@ -27,6 +27,7 @@ from .provider import (
     normalize_image,
 )
 from .sdk import SdkGateway, sdk_router
+from .vnpt_services import vnpt_services_router
 
 STATIC = Path(__file__).parent / "static"
 COOKIE = "ekyc_lab_session"
@@ -497,6 +498,7 @@ def create_app(
         client_factory=nfc_client_factory,
     )
     app.include_router(nfc_routes)
+    app.include_router(vnpt_services_router())
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     # Keep private state inspectable in unit tests without exposing it through HTTP.
     app.state.jobs = jobs

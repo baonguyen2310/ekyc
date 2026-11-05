@@ -1,6 +1,6 @@
 # eKYC Lab
 
-Service thử nghiệm eKYC độc lập, dùng FastAPI + giao diện HTML/JS + nginx; triển khai trên Civo tại **https://tools.opskoo.com**. VNPT phục vụ OCR/Oval; tab NFC dùng Signicat ReadID Ready qua Assure API. Không dùng API, tài khoản hoặc cơ sở dữ liệu Opskoo.
+Service thử nghiệm eKYC độc lập, dùng FastAPI + giao diện HTML/JS + nginx; triển khai trên Civo tại **https://tools.opskoo.com**. VNPT phục vụ OCR/Oval; tab NFC dùng Signicat ReadID Ready qua Assure API. Hai tab VNPT IDCheck và VNeID/C06 hiện mới là giao diện chuẩn bị tích hợp, chưa thực hiện xác minh. Không dùng API, tài khoản hoặc cơ sở dữ liệu Opskoo.
 
 ## Luồng đang có
 
@@ -42,6 +42,7 @@ PUBLIC_ORIGIN=http://127.0.0.1:8103 COOKIE_SECURE=false \
 node --check app/static/app.js
 node --test tests/sdk-client.test.cjs
 node --test tests/nfc-client.test.cjs
+node --test tests/vnpt-services-client.test.cjs
 ```
 
 ## Triển khai trên Civo
@@ -112,3 +113,18 @@ Recreate API sau khi cập nhật. Thiếu cấu hình thì tab vẫn mở đư�
 Không gọi nhà cung cấp khi khởi động, GET trạng thái hoặc mở tab. Tạo phiên và lấy kết quả là thao tác thủ công, không tự retry, không auto-poll. Mỗi phiên Lab có tối đa một lượt NFC chưa kết thúc, tối đa 20 lượt mới/giờ toàn Lab; tối đa 15 lần cập nhật/lượt, cách nhau ít nhất 5 giây. Request có deadline tổng 25 giây; thất bại/timeout không tự tạo lại dossier.
 
 Kết quả/liên kết riêng chỉ nằm trong RAM và trong phiên Lab tạo nó, tối đa 20 phút. Thoát Lab xóa bản tại VPS; không xóa hoặc hủy dossier tại Signicat. Bản JSON hiển thị/tải về chỉ có các trường được phép, không có token/ảnh/chip blob. Số request hiển thị chỉ tính backend Lab, không gồm request app ReadID gửi và không khẳng định số lượt tính phí. Camera/NFC chạy trong app, không phải Web NFC trên trình duyệt.
+
+## VNPT IDCheck và VNeID/C06 — phần chuẩn bị (05/11/2026)
+
+- `/?tab=idcheck`: tab riêng mô tả luồng đọc chip NFC bằng SDK/app trên điện thoại hoặc thiết bị đọc thẻ, rồi nhận kết quả IDCheck tại backend Lab.
+- `/?tab=vneid`: tab riêng phân biệt xác thực qua VNeID với dịch vụ xác thực căn cước RAR-C06. Không coi hai dịch vụ là cùng một API, hoặc lấy kết quả NFC/OCR thay cho xác nhận của dịch vụ này.
+- **Cả hai chưa có luồng chạy thật.** Nút bắt đầu bị vô hiệu hóa và giao diện liệt kê phần tích hợp còn thiếu. Không tạo QR, deep link, dữ liệu xác minh hoặc trạng thái đạt giả. Không nhận kết quả xác minh do client tự gửi.
+- `GET /api/vnpt-services/status` yêu cầu phiên Lab, chỉ trả tình trạng triển khai của Lab; không truy vấn quyền tài khoản hoặc gửi request tới VNPT/C06. Trạng thái `integration_pending` không có nghĩa tài khoản bị VNPT từ chối cấp quyền. Khóa OCR/Oval hiện có không được dùng làm bằng chứng về quyền IDCheck/VNeID.
+
+Theo [VNPT IDCheck](https://vnptai.io/ekyc/vi/solution-idcheck), nhà cung cấp có SDK NFC cho iOS/Android, hỗ trợ thiết bị đọc thẻ và API xác thực với RAR-C06. [Trang gói cước](https://ekyc.vnpt.vn/vi/idcheck-12) còn nêu SDK Web nhưng không đủ thông tin để kết luận trình duyệt tự đọc được chip hoặc có sẵn luồng chuyển sang app giống ReadID Ready. Bộ Web SDK 3.2.1.0 đang dùng tại Lab là bộ OCR/Oval; không thêm giá trị `SDK_FLOW` chưa được tài liệu hóa cho NFC.
+
+[Cổng tích hợp xác thực điện tử quốc gia](https://congxacthucdientuquocgia.gov.vn/vi) mô tả dịch vụ xác thực căn cước và dịch vụ xác thực điện tử VNeID cùng quy trình đăng ký khai thác. Chưa có hợp đồng API/SDK hoặc thông tin cấp quyền dịch vụ này cho Lab. Chưa xác nhận tài khoản VNPT hiện tại có quyền IDCheck; ngày kiểm tra, [trang tài liệu tải SDK](https://ekyc.vnpt.vn/admin-dashboard/vi/documents/download) yêu cầu đăng nhập lại.
+
+Để hoàn tất cần: (1) tài liệu IDCheck và SDK/app/đầu đọc có thể nhận phiên từ Lab; (2) thông tin xác thực và quyền thử nghiệm IDCheck, môi trường và hạn mức; (3) đặc tả backend tạo phiên/lấy kết quả và kiểm chứng nguồn kết quả; (4) nếu thử VNeID, đặc tả chuyển hướng, consent, callback và thông tin kết nối được cấp cho dịch vụ đó. Chỉ triển khai adapter thực thi sau khi có hợp đồng kỹ thuật cụ thể, không tự đoán endpoint hoặc tái sử dụng phiên đăng nhập console làm API.
+
+Thay đổi này chỉ chạy kiểm thử với dữ liệu tổng hợp và transport giả. Không khởi tạo xác minh, upload giấy tờ/khuôn mặt hoặc tiêu hao request VNPT/Signicat.

@@ -8,6 +8,7 @@
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/static/app.css">
   <script src="/static/nfc.js" defer></script>
+  <script src="/static/vnpt-services.js" defer></script>
   <script src="/static/app.js" defer></script>
 </head>
 <body>
@@ -42,16 +43,36 @@
     </section>
 
     <div id="workspace" hidden>
-      <section class="page-heading"><div><p class="eyebrow">VNPT eKYC & Signicat ReadID</p><h1>Đọc giấy tờ và kiểm tra người thật.</h1><p class="muted">Chọn OCR, Oval, luồng đầy đủ hoặc thử đọc chip NFC bằng app của nhà cung cấp.</p></div><span class="private-label"><svg><use href="#i-shield"/></svg>Phiên thử riêng</span></section>
+      <section class="page-heading"><div><p class="eyebrow">VNPT eKYC & Signicat ReadID</p><h1>Đọc giấy tờ và kiểm tra người thật.</h1><p class="muted">Chọn từng luồng để xem cách thực hiện, trạng thái kết nối và kết quả riêng.</p></div><span class="private-label"><svg><use href="#i-shield"/></svg>Phiên thử riêng</span></section>
       <div class="flow-switch" role="group" aria-label="Cách xác minh">
         <button class="flow-button selected" id="flow-images" aria-pressed="true"><svg><use href="#i-id"/></svg>Đọc giấy tờ (OCR)</button>
         <button class="flow-button" id="flow-sdk" aria-pressed="false"><svg><use href="#i-face"/></svg>Liveness Oval</button>
         <button class="flow-button" id="flow-full" aria-pressed="false"><svg><use href="#i-shield"/></svg>Luồng đầy đủ</button>
         <button class="flow-button" id="flow-nfc" aria-pressed="false"><svg><use href="#i-id"/></svg>NFC · ReadID Ready</button>
+        <button class="flow-button" id="flow-idcheck" aria-pressed="false"><svg><use href="#i-id"/></svg>NFC · VNPT IDCheck</button>
+        <button class="flow-button" id="flow-vneid" aria-pressed="false"><svg><use href="#i-shield"/></svg>VNeID / C06</button>
       </div>
       <div class="workspace-grid">
         <div class="main-column">
           <section class="panel setup-notice" id="service-notice" hidden><div><strong>Kết nối VNPT chưa sẵn sàng</strong><p id="service-message"></p></div></section>
+          <section class="panel integration-panel" id="idcheck-panel" hidden aria-labelledby="idcheck-title">
+            <div class="section-heading"><div><span class="step">01</span><h2 id="idcheck-title">VNPT IDCheck · NFC</h2></div><span class="sdk-version">Chưa kết nối</span></div>
+            <p class="muted">Đọc dữ liệu và ảnh chân dung từ chip CCCD bằng SDK NFC trên điện thoại hoặc đầu đọc thẻ. Dịch vụ IDCheck của VNPT có thêm bước xác thực với RAR-C06.</p>
+            <div class="integration-route" aria-label="Luồng IDCheck"><span>Điện thoại / đầu đọc NFC</span><svg><use href="#i-arrow"/></svg><span>VNPT IDCheck</span><svg><use href="#i-arrow"/></svg><span>Kết quả tại Lab</span></div>
+            <div class="integration-status" role="status"><svg><use href="#i-gear"/></svg><div><strong id="idcheck-connection">Đang đọc trạng thái kết nối…</strong><p>Web SDK OCR/Oval hiện tại không cung cấp đầu đọc chip CCCD cho trình duyệt. Lab cần một luồng NFC riêng.</p></div></div>
+            <h3>Phần còn cần để chạy thử</h3><ul class="integration-requirements" id="idcheck-requirements"></ul>
+            <div class="integration-actions"><button class="button primary" disabled aria-describedby="idcheck-connection"><svg><use href="#i-id"/></svg>Quét NFC · Chưa sẵn sàng</button><a class="button secondary" href="https://vnptai.io/ekyc/vi/solution-idcheck" target="_blank" rel="noopener noreferrer">Xem dịch vụ VNPT<svg><use href="#i-arrow"/></svg></a></div>
+            <p class="result-note">Chưa tạo phiên hoặc gửi request IDCheck. Chưa xác nhận tài khoản được cấp quyền hay hạn mức thử. Tab này chưa có kết quả xác minh.</p>
+          </section>
+          <section class="panel integration-panel" id="vneid-panel" hidden aria-labelledby="vneid-title">
+            <div class="section-heading"><div><span class="step">01</span><h2 id="vneid-title">VNeID / C06 · Xác thực điện tử</h2></div><span class="sdk-version">Chưa kết nối</span></div>
+            <p class="muted">Đây là kết nối dịch vụ riêng. Kết quả đọc OCR, kiểm tra người thật hoặc đọc chip NFC ở các tab khác không tự trở thành kết quả xác thực VNeID/C06.</p>
+            <div class="integration-options"><article><span class="integration-icon"><svg><use href="#i-face"/></svg></span><h3>Xác thực qua VNeID</h3><p>Chuyển người dùng sang luồng xác nhận của VNeID, nhận kết quả qua kết nối đã được cấp cho đơn vị tích hợp.</p></article><article><span class="integration-icon"><svg><use href="#i-shield"/></svg></span><h3>Xác thực căn cước RAR-C06</h3><p>Kiểm tra căn cước qua API của dịch vụ được cấp quyền. Với IDCheck, bước này đi cùng luồng NFC theo cấu hình VNPT.</p></article></div>
+            <div class="integration-status" role="status"><svg><use href="#i-gear"/></svg><div><strong id="vneid-connection">Đang đọc trạng thái kết nối…</strong><p>Chưa có kết nối dịch vụ cho Lab. Không nhập số CCCD, mật khẩu hoặc OTP VNeID tại đây.</p></div></div>
+            <h3>Phần còn cần để chạy thử</h3><ul class="integration-requirements" id="vneid-requirements"></ul>
+            <div class="integration-actions"><button class="button primary" disabled aria-describedby="vneid-connection"><svg><use href="#i-shield"/></svg>Xác thực · Chưa sẵn sàng</button><a class="button secondary" href="https://congxacthucdientuquocgia.gov.vn/vi" target="_blank" rel="noopener noreferrer">Xem cổng tích hợp<svg><use href="#i-arrow"/></svg></a></div>
+            <p class="result-note">Chưa gọi VNeID hoặc C06. Không tự dùng khóa OCR/Oval, không nhận JSON do trình duyệt tự khai báo làm kết quả xác thực.</p>
+          </section>
           <section class="panel nfc-panel" id="nfc-panel" hidden>
             <div class="section-heading"><div><span class="step">01</span><h2>Đọc chip NFC qua app</h2></div><span class="sdk-version">Signicat · Sandbox</span></div>
             <p class="muted">Lab tạo phiên riêng. Trang của Signicat hiển thị mã QR trên máy tính hoặc hướng dẫn mở ReadID Ready trên điện thoại. Kết quả được backend Lab lấy trực tiếp từ Signicat.</p>
@@ -131,8 +152,8 @@
         </div>
 
         <aside class="aside-column">
-          <section class="panel guide-card"><span class="guide-icon"><svg><use href="#i-shield"/></svg></span><h2>Chọn phần<br>cần kiểm tra.</h2><ol><li><span>1</span><div><strong>OCR giấy tờ</strong><p>Đọc chữ từ hai mặt CCCD hoặc CMND. Tùy chọn kiểm tra ảnh nâng cao vẫn nằm trong tab này.</p></div></li><li><span>2</span><div><strong>Liveness Oval</strong><p>Chỉ kiểm tra người thật và che mặt qua camera, không đối chiếu với CCCD.</p></div></li><li><span>3</span><div><strong>Luồng đầy đủ</strong><p>Chụp giấy tờ, OCR, quét Oval và so khớp khuôn mặt với CCCD trong cùng một lượt. Mỗi bước có kết quả riêng.</p></div></li><li><span>4</span><div><strong>NFC · ReadID Ready</strong><p>Chuyển sang app của Signicat để đọc chip. Kết quả sandbox được backend Lab lấy riêng.</p></div></li></ol></section>
-          <section class="panel small-note"><h3>Một service thử riêng</h3><p>Không gắn với tài khoản, hồ sơ hoặc dữ liệu Opskoo. Dữ liệu được xử lý tạm, không lưu thành hồ sơ tại VPS.</p><p>OCR/Oval dùng VNPT. NFC là luồng sandbox riêng qua app ReadID Ready của Signicat; không dùng khóa hoặc kết quả VNPT. Chưa có đối chiếu C06/VNeID.</p><a href="https://ekyc.vnpt.vn/admin-dashboard/console/dashboard" target="_blank" rel="noopener noreferrer">Mở console VNPT<svg><use href="#i-arrow"/></svg></a><p><a href="https://dashboard.signicat.com/" target="_blank" rel="noopener noreferrer">Mở dashboard Signicat<svg><use href="#i-arrow"/></svg></a></p></section>
+          <section class="panel guide-card"><span class="guide-icon"><svg><use href="#i-shield"/></svg></span><h2>Chọn phần<br>cần kiểm tra.</h2><ol><li><span>1</span><div><strong>OCR giấy tờ</strong><p>Đọc chữ từ hai mặt CCCD hoặc CMND. Tùy chọn kiểm tra ảnh nâng cao vẫn nằm trong tab này.</p></div></li><li><span>2</span><div><strong>Liveness Oval</strong><p>Chỉ kiểm tra người thật và che mặt qua camera, không đối chiếu với CCCD.</p></div></li><li><span>3</span><div><strong>Luồng đầy đủ</strong><p>Chụp giấy tờ, OCR, quét Oval và so khớp khuôn mặt với CCCD trong cùng một lượt. Mỗi bước có kết quả riêng.</p></div></li><li><span>4</span><div><strong>NFC · ReadID Ready</strong><p>Chuyển sang app của Signicat để đọc chip. Kết quả sandbox được backend Lab lấy riêng.</p></div></li><li><span>5</span><div><strong>NFC · VNPT IDCheck</strong><p>Luồng VNPT đọc chip và xác thực RAR-C06. Đang chờ bộ tích hợp riêng.</p></div></li><li><span>6</span><div><strong>VNeID / C06</strong><p>Kết nối dịch vụ xác thực điện tử. Đang chờ tài liệu và cấu hình được cấp.</p></div></li></ol></section>
+          <section class="panel small-note"><h3>Một service thử riêng</h3><p>Không gắn với tài khoản, hồ sơ hoặc dữ liệu Opskoo. Dữ liệu được xử lý tạm, không lưu thành hồ sơ tại VPS.</p><p>OCR/Oval dùng VNPT. ReadID Ready là luồng sandbox riêng của Signicat. Hai tab VNPT IDCheck và VNeID/C06 hiện hiển thị phần thiết lập còn thiếu, chưa chạy xác minh.</p><a href="https://ekyc.vnpt.vn/admin-dashboard/console/dashboard" target="_blank" rel="noopener noreferrer">Mở console VNPT<svg><use href="#i-arrow"/></svg></a><p><a href="https://dashboard.signicat.com/" target="_blank" rel="noopener noreferrer">Mở dashboard Signicat<svg><use href="#i-arrow"/></svg></a></p></section>
         </aside>
       </div>
     </div>
