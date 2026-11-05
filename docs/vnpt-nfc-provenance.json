@@ -1,0 +1,21 @@
+{
+  "source": "https://ekyc.vnpt.vn/admin-dashboard/vi/documents/download",
+  "downloaded_on": "2026-11-05",
+  "files": [
+    {
+      "filename": "[VNPT][iOS] Hướng dẫn tích hợp SDK NFC v2.2.8.docx",
+      "bytes": 3661129,
+      "sha256": "5e68027cbcfbe10c25a6ec1ac2bc243c4aaffa69f8567a989c96003837927b02"
+    },
+    {
+      "filename": "[VNPT][Android] Hướng dẫn tích hợp SDK NFC v1.8.5.pdf",
+      "bytes": 1827036,
+      "sha256": "113786ce9c33300479d8a70e5b696a221efd6db2f23fb88b60edfb5eb4f93e36"
+    },
+    {
+      "filename": "SDK_NFC_v1.8.5.zip",
+      "bytes": 8344304,
+      "sha256": "f991bae320f57ab05c406466e8ef7dc1b14b299270a768f1753c5c0ca6b42ee6"
+    }
+  ]
+}

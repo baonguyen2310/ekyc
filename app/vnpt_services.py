@@ -16,19 +16,29 @@ def vnpt_services_router():
             "idcheck": {
                 "ready": False,
                 "state": "integration_pending",
-                "message": "Chưa kết nối IDCheck NFC. Chưa thể bắt đầu quét từ Lab.",
+                "message": "Đã có SDK và quota NFC thử nghiệm; còn thiếu app kết nối với Lab.",
+                "quota_snapshot": {
+                    "checked_on": "05/11/2026",
+                    "nfc": 100,
+                    "idcheck": 0,
+                    "ekyc": 68,
+                },
                 "requirements": [
                     {
-                        "label": "SDK/app đọc chip trên điện thoại hoặc đầu đọc thẻ",
-                        "detail": "Chưa có bộ tích hợp NFC và cơ chế chuyển phiên cho Lab.",
+                        "label": "SDK NFC chính thức đã tải được",
+                        "detail": "iOS 2.2.8 và Android 1.8.5. Đây là thư viện nhúng vào app, không phải app đã cài được để nhận phiên của Lab.",
                     },
                     {
-                        "label": "API IDCheck và quyền thử nghiệm",
-                        "detail": "Chưa xác nhận quyền IDCheck của tài khoản. Khóa OCR/Oval không xác nhận quyền này.",
+                        "label": "Còn thiếu cầu nối web → app → backend",
+                        "detail": "Cần app chứa SDK hoặc luồng chuyển sang app do VNPT cung cấp. Chưa thấy luồng app có sẵn trong tài liệu đã đọc.",
                     },
                     {
-                        "label": "Kết quả xác thực do backend nhận từ VNPT",
-                        "detail": "Cần tài liệu API, cách xác thực và lấy kết quả chính thức trước khi triển khai.",
+                        "label": "NFC và IDCheck được tách riêng",
+                        "detail": "Đọc chip NFC và xác thực với C06 là hai bước riêng; bước C06 mặc định tắt trong SDK. Quota NFC không xác nhận có quota cho bước IDCheck/C06.",
+                    },
+                    {
+                        "label": "Kết nối backend NFC còn cần hoàn tất",
+                        "detail": "Chưa cấu hình khóa NFC riêng hoặc kiểm chứng giao thức nhận kết quả tại Lab. Không dùng kết quả client tự khai báo để xác nhận thẻ thật.",
                     },
                 ],
             },
@@ -47,7 +57,7 @@ def vnpt_services_router():
                     },
                     {
                         "label": "API xác thực căn cước qua RAR-C06",
-                        "detail": "Cần hợp đồng API và thông tin xác thực riêng. Đọc NFC hoặc OCR thành công không phải kết quả đối chiếu C06.",
+                        "detail": "Console IDCheck đang ghi nhận 0 request khả dụng ngày 05/11/2026. Hạn mức VNeID chưa được xác nhận; cần tài liệu và quyền kết nối riêng.",
                     },
                 ],
             },

@@ -15,6 +15,22 @@ window.vnptServices = (() => {
     node(service, "requirements").replaceChildren();
   }
 
+  function renderQuota(snapshot) {
+    const target = node("idcheck", "quota");
+    target.replaceChildren();
+    target.hidden = !snapshot;
+    if (!snapshot) return;
+    target.append(textElement("h3", `Hạn mức ghi nhận trên console · ${snapshot.checked_on}`));
+    const list = textElement("dl", "");
+    list.className = "integration-quota-values";
+    for (const [key, label] of [["nfc", "NFC"], ["idcheck", "IDCheck"], ["ekyc", "eKYC"]]) {
+      const item = textElement("div", "");
+      item.append(textElement("dt", label), textElement("dd", `${snapshot[key]} request`));
+      list.append(item);
+    }
+    target.append(list, textElement("p", "Đây là số liệu đã ghi nhận, không tự cập nhật. Request không đồng nghĩa với một lượt xác minh đầy đủ."));
+  }
+
   return {
     async load() {
       const version = generation;
@@ -31,8 +47,10 @@ window.vnptServices = (() => {
             node(service, "requirements").append(item);
           }
         }
+        renderQuota(data.idcheck?.quota_snapshot);
       } catch (error) {
         if (version !== generation) return;
+        renderQuota(null);
         for (const service of services) unavailable(service, error.message);
       }
     },
@@ -47,6 +65,7 @@ window.vnptServices = (() => {
     },
     clear() {
       generation++;
+      renderQuota(null);
       for (const service of services) unavailable(service, "Đang đọc trạng thái kết nối…");
     }
   };
